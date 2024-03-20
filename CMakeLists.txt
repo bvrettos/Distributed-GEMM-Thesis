@@ -11,7 +11,7 @@ set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 # Set CUDA Stuff
 set(CUDA_PREFIX "/usr/local/cuda-12.1")
 set (CUDA_LD ${CUDA_PREFIX}/lib64) # or /lib depending on system
-set (CUDA_LINK "-L${CUDA_LD} -lcudart -lcublas -lcurand -lcuda")
+set (CUDA_LINK "-L${CUDA_LD} -lcublas -lcurand -lcuda -lcudart")
 set (CUDA_INCLUDE_DIRS ${CUDA_PREFIX}/include ${CUDA_PREFIX}/samples/common/inc)
 set (CMAKE_CUDA_COMPILER ${CUDA_PREFIX}/bin/nvcc)
 
@@ -22,17 +22,9 @@ set (MPI_LD ${MPI_PREFIX}/lib)
 set (MPI_LINK "-lmpi -L${MPI_LD}")
 
 # Set PARALiA Stuff
-set (PARALIA_PREFIX "/home/users/vvrettos/PARALiA-Thesis/silver1-build/silver1_2V100-install")
-set (PARALIA_LINK "-L${PARALIA_PREFIX}/Library_scheduler/lib -lparalia")
-set (PARALIA_INCLUDE_DIRS ${PARALIA_PREFIX}/Library_scheduler/include)
-set (PARALIA_DIR "/home/users/vvrettos/PARALiA-Thesis")
-
-set (AUTOTUNER_INCLUDE_DIRS ${PARALIA_PREFIX}/Autotuner/include)
-set (BENCHMARKING_INCLUDE_DIRS ${PARALIA_PREFIX}/Benchmarking/include)
-set (LINKMAP_INCLUDE_DIRS ${PARALIA_PREFIX}/Extended_LinkMap/include)
-
-set (AUTOTUNER_LINK "-L${PARALIA_PREFIX}/Autotuner/lib -lautotuner")
-set (LINKMAP_LINK "-L${PARALIA_PREFIX}/Extended_LinkMap/lib -llinkmap -llinkmap_helpers")
+set (PARALIA_PREFIX "/home/users/vvrettos/PARALiA-GEMMex/build/silver1_2V100-install")
+set (PARALIA_LINK "-L${PARALIA_PREFIX}/lib -lparalia -lautotuner -lcaching -lchl_grid_amalgamation -lchl_smart_wrappers")
+set (PARALIA_INCLUDE_DIRS ${PARALIA_PREFIX}/include)
 
 set(CMAKE_C_COMPILER ${CMAKE_CUDA_COMPILER})
 set(CMAKE_CXX_COMPILER ${CMAKE_CUDA_COMPILER})
@@ -54,7 +46,11 @@ set (CAL_INCLUDE_DIRS ${CAL_PREFIX}/include)
 set (CAL_LD ${CAL_PREFIX}/lib)
 set (CAL_LINK "-L${CAL_LD} -lcal")
 
-add_definitions(-DLOC_NUM=4)
+# Set numactl Stuff
+set (NUMACTL_PREFIX $ENV{NUMACTL_PATH})
+set (NUMACTL_INCLUDE_DIRS ${NUMACTL_PATH}/include)
+set (NUMACTL_LINK "-L${NUMACTL_PATH}/lib -lnuma")
+
 add_definitions(-DMAX_BACKEND_L=8)
 add_definitions(-DREDUCE_WORKERS_PERDEV=10)
 add_definitions(-DPROBLEM_MD_CACHE=100) # Only relevant for "PROBLEMS" reuse level
@@ -64,27 +60,21 @@ include_directories(
     ${PARALIA_INCLUDE_DIRS}
     ${MPI_INCLUDE_DIRS}
     ${OPENBLAS_INCLUDE_DIRS}
-    ${AUTOTUNER_INCLUDE_DIRS}
-    ${BENCHMARKING_INCLUDE_DIRS}
-    ${LINKMAP_INCLUDE_DIRS}
     ${CUBLASMP_INCLUDE_DIRS}
     ${CAL_INCLUDE_DIRS}
+    ${NUMACTL_INCLUDE_DIRS}
     include
 )
 
-# Create executable
-add_executable(main 
-    src/main.cpp src/matrix.cpp src/gemm.cpp
-)
-
-add_executable(paraliaTest
-    src/paraliaTest.cpp src/matrix.cpp
-)
-
 add_executable(cublasmpTest
-    src/cuBLASMPtest.cpp 
+    src/cuBLASMPtest.cpp
 )
 
-target_link_libraries(main ${MPI_LINK} ${OPENBLAS_LINK})
-target_link_libraries(paraliaTest ${MPI_LINK} ${OPENBLAS_LINK} ${PARALIA_LINK} ${AUTOTUNER_LINK} ${LINKMAP_LINK})
-target_link_libraries(cublasmpTest ${MPI_LINK} ${OPENBLAS_LINK})
+add_executable(mpiBenchmark
+    src/mpiBenchmark.cpp src/cudaCommunicator.cpp src/mpiBLAS.cpp 
+    src/2DBlockCyclicDecomposition.cpp src/2DBlockSequentialDecomposition.cpp src/validation.cpp
+    src/cmatrix.cpp
+)
+
+target_link_libraries(cublasmpTest ${MPI_LINK} ${OPENBLAS_LINK} ${CAL_LINK} ${CUBLASMP_LINK} ${CUDA_LINK})
+target_link_libraries(mpiBenchmark ${MPI_LINK} ${PARALIA_LINK} ${OPENBLAS_LINK} ${NUMACTL_LINK} ${CUDA_LINK})

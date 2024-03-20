@@ -4,7 +4,6 @@
 
 #include <cblas.h>
 
-#include "topology.hpp"
 #include "matrix.hpp"
 #include <iostream>
 #include <vector>
@@ -91,7 +90,7 @@ int main(int argc, char* argv[]) {
     MPI_Type_vector(localM, localN, localN, MPI_DOUBLE, &dummy);
     MPI_Type_create_resized(dummy, 0, sizeof(double), &blockC);
     MPI_Type_commit(&blockC);
-
+    
 
     /* Global 2D block MPI Definitions */
     MPI_Datatype globalBlockA, globalBlockB, globalBlockC;
@@ -123,7 +122,7 @@ int main(int argc, char* argv[]) {
         scatterOffsetC = (int*) malloc(size*sizeof(int));
         scatterCountC = (int*) malloc(size*sizeof(int));
 
-        /* C Scattering 2D Decomp*/
+        /* C Scattering 2D Sequential Decomp*/
         for (int i = 0; i < dRow; i++) {   
             for (int j = 0; j < dCol; j++) {
                 scatterCountC[i*dCol + j] = 1;
@@ -147,14 +146,14 @@ int main(int argc, char* argv[]) {
             }
         }
 
-    #ifdef DEBUG
-        for (int k = 0; k < size; k++) {
-            std::cout << "ScatteroffsetA: " << scatterOffsetA[k] << std::endl;
-            std::cout << "ScatteroffsetB: " << scatterOffsetB[k] << std::endl;
-            std::cout << "ScatteroffsetC: " << scatterOffsetC[k] << std::endl;
-            std::cout << std::endl;
-        }
-    #endif
+        #ifdef DEBUG
+            for (int k = 0; k < size; k++) {
+                std::cout << "ScatteroffsetA: " << scatterOffsetA[k] << std::endl;
+                std::cout << "ScatteroffsetB: " << scatterOffsetB[k] << std::endl;
+                std::cout << "ScatteroffsetC: " << scatterOffsetC[k] << std::endl;
+                std::cout << std::endl;
+            }
+        #endif
     }
 
     int ierr = MPI_Scatterv(globalA, scatterCountA, scatterOffsetA, globalBlockA, localA, 1, blockA, 0, MPI_COMM_WORLD);

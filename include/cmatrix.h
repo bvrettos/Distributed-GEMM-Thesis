@@ -1,35 +1,16 @@
+#ifndef CMATRIX_H
+#define CMATRIX_H
+
 #include <iostream>
+#include <vector>
+#include <algorithm>
 
-void printMatrix(double *array, int rows, int columns, int rank) {
-    std::cout << "RANK: " << rank << std::endl;
-    for (int i = 0; i < rows; i++) {
-        for (int j = 0; j < columns; j++) {
-            std::cout << array[i*columns + j] << " ";
-        }
-        std::cout << std::endl;
-    }
-    std::cout << std::endl;
-}
+template <typename T>
+bool vectorContains(std::vector<T> &vector, T value);
 
-void generateMatrix(double *array, int rows, int columns) {
-    for (int i = 0; i < rows; i++) {
-        for (int j = 0; j < columns; j++) {
-            array[i*columns + j] = (double) rand() / rand();
-        }
-    }
-}
+void printMatrix(double *array, int rows, int columns, int rank);
+void generateMatrix(double *array, const int rows, const int columns);
+void printInLine(double *array, int rows, int columns, int rank);
+double* copyMatrix(double *matrix1, int rows, int columns);
 
-void printInLine(double *array, int rows, int columns, int rank) {
-    std::cout << "RANK: " << rank << std::endl;
-    for (int i = 0; i < rows*columns; i++)
-        std::cout << array[i] << " ";
-    std::cout << std::endl;
-}
-
-double* copyMatrix(double *matrix1, int rows, int columns) {
-    double *copiedMatrix = (double *) malloc(sizeof(double)*rows*columns);
-    for (int i = 0; i < rows*columns; i++) {
-        copiedMatrix[i] = matrix1[i];
-    }
-    return copiedMatrix;
-}
+#endif
