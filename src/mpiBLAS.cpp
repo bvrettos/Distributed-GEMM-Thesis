@@ -1,7 +1,4 @@
 #include "mpiBLAS_wrappers.hpp"
-#include "cudaCommunicator.hpp"
-#define DEBUG
-#define VALIDATE
 
 double MPI_Dgemm_Sequential(char TransA,  char TransB, long int M, long int N, long int K,
   double alpha, double* A, long int ldA, double* B, long int ldB, double beta, double* C,
@@ -34,7 +31,12 @@ double MPI_Dgemm_Sequential(char TransA,  char TransB, long int M, long int N, l
 
     Decomposer.scatterMatrices(A, B, C, localA, localB, localC);
 
+    double t1, t2;
+    t1 = MPI_Wtime();
+
     cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, localM, localN, localK, alpha, localA, localK, localB, localN, beta, localC, localN);
+
+    t2 = MPI_Wtime();
 
     Decomposer.gatherResult(C, localC);
 
@@ -42,12 +44,12 @@ double MPI_Dgemm_Sequential(char TransA,  char TransB, long int M, long int N, l
     free(localB);
     free(localC);
 
-    return 0;
+    return t2-t1;
 }
 
 double MPI_Dgemm_Cyclic(char TransA,  char TransB, long int M, long int N, long int K,
   double alpha, double* A, long int ldA, double* B, long int ldB, double beta, double* C,
-  long int ldC)
+  long int ldC, int blockRows, int blockColumns)
 {
     /* Check if MPI has been initialized */
     int initializedMPI;
@@ -60,62 +62,83 @@ double MPI_Dgemm_Cyclic(char TransA,  char TransB, long int M, long int N, long 
 
     MPI_Comm problemCommunicator = MPI_COMM_WORLD;
 
-}
+    double timer1, timer2, timer3, timer4, timer5;
+    timer1 = MPI_Wtime();
+    GEMM_BlockCyclicDecomposer decomposer(M, N, K, blockRows, blockColumns, problemCommunicator);
 
-double PARALiA_MPI_Dgemm(char TransA,  char TransB, long int M, long int N, long int K,
-  double alpha, double* A, long int ldA, double* B, long int ldB, double beta, double* C,
-  long int ldC)
-{
-    /* Check if MPI has been initialized */
-    int initializedMPI;
-    MPI_Initialized(&initializedMPI);
+    decomposer.calculateTaskMap();
 
-    if (!initializedMPI) {
-        std::cerr << "ERROR: MPI has not been initialized. Call MPI_Init before calling this function" << std::endl;
-        exit(-2);
+    timer2 = MPI_Wtime();
+
+    int tilesPerTask = decomposer.helperTilesPerTask;
+    int cTilesPerDevice = decomposer.cTilesPerDevice;
+
+    /* Now, each device is supposed to iterate their own task map and allocate memory depending on what info needs to be sendedn to them. */
+
+    /* 
+        Prepeare a set for A and B. Every time you want to send an tile from either A or B, check if the index is in the set. If not, then send and update the set.
+        If you find the index, then skip the send. This can be done in a static manner (I think).
+    */
+    /* Do not allocate further memory since the last dimension is quite more intensive. Do that only if the task needs to allocate memory */
+    /* Going full r-word mode... */
+
+    /* Prepare memory for each task */
+    double** localC;             // localC[cTilesPerDevice][blockRow*blockColumns];
+    double ***localA, ***localB; // localA[cTilesPerDevice][tilesPerTask][blockRow * blockColumns]
+    
+    timer3 = MPI_Wtime();
+
+    localA = (double***) malloc(sizeof(double**) * cTilesPerDevice);
+    localB = (double***) malloc(sizeof(double**) * cTilesPerDevice);
+    localC = (double**) malloc(sizeof(double*) * cTilesPerDevice);
+
+    for (int i = 0; i < cTilesPerDevice; i++) {
+        localC[i] = (double*) malloc(sizeof(double) * blockRows * blockColumns);
+        localA[i] = (double**) malloc(sizeof(double*) * tilesPerTask);
+        localB[i] = (double**) malloc(sizeof(double*) * tilesPerTask);
+        for (int j = 0; j < tilesPerTask; j++) {
+            localA[i][j] = (double*) malloc(sizeof(double) * blockRows * blockColumns);
+            localB[i][j] = (double*) malloc(sizeof(double) * blockRows * blockColumns);
+        }
+    }
+    timer4 = MPI_Wtime();
+
+    
+
+    if (decomposer.squareDecomposition)
+        decomposer.squareTaskScattering(A, B, C, localA, localB, localC);
+    else {
+        std::cout << "Non square cyclic decomposition not ready yet, sorry :( " << std::endl;
+        return 0;
     }
 
-    /* Create a communicator only for processes that can have access to a GPU */
-    MPI_Comm gpuCommunicator = createGPUCommunicator();
-    MPI_Comm problemCommunicator = gpuCommunicator;
+    timer5 = MPI_Wtime();
 
-    GEMM_BlockSequentialDecomposer Decomposer(M, N, K, problemCommunicator);
+    double decomposerTime = timer2-timer1;
+    double scatteringTime = timer5-timer4;
+    double allocationTime = timer4-timer3;
 
-    int rank = Decomposer.rank;
+    /* Actually run DGEMM */
+    double t1, t2;
+    t1 = MPI_Wtime();
+    
+    for (int i = 0; i < cTilesPerDevice; i++) {
+        cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, blockRows, blockRows, blockRows,
+         alpha, localA[i][0], blockRows, localB[i][0], blockRows, beta, localC[i], blockRows);
+        for (int j = 1; j < tilesPerTask; j++) {
+            cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, blockRows, blockRows, blockRows,
+            alpha, localA[i][j], blockRows, localB[i][j], blockRows, 1.0000000, localC[i], blockRows);
+        }
+    }
 
-    double *localA, *localB, *localC;
+    t2 = MPI_Wtime();
 
-    int localM = Decomposer.localM;
-    int localN = Decomposer.localN;
-    int localK = Decomposer.localK;
+    /* Gather */
+    decomposer.squareTaskGathering(C, localC);
+    if (decomposer.rank == 0)
+        printf("Decomposer Time: %lf Scattering Time: %lf Allocation Time: %lf Execution Time: %lf\n", decomposerTime, scatteringTime, allocationTime, t2-t1);
 
-    // localA = (double*) CHLMalloc(localK * localM*sizeof(double), 4, 0);
-	// localB = (double*) CHLMalloc(localN * localK*sizeof(double), 4, 0);
-	// localC = (double*) CHLMalloc(localM * localN*sizeof(double), 4, 1);
+    MPI_Barrier(problemCommunicator);
 
-    localA = (double*) malloc(localK * localM*sizeof(double));
-	localB = (double*) malloc(localN * localK*sizeof(double));
-	localC = (double*) malloc(localM * localN*sizeof(double));
-
-    Decomposer.scatterMatrices(A, B, C, localA, localB, localC);
-
-    /* PARALIA: Create ATC */
-    ATC_p predefControlValues = new ATC();
-    predefControlValues->cache_limit = -1;
-    predefControlValues->T = -1;
-    predefControlValues->active_unit_num = 1;
-    predefControlValues->active_unit_id_list[0] = 1;
-
-    PARALiADgemmControled('N', 'N', localM, localN, localK, alpha, localA,
-     localK, localB, localN, beta, localC, localN, predefControlValues);
-
-    /* Return C to main process */
-    Decomposer.gatherResult(C, localC);
-
-    /* Free everything not needed */
-    free(localA);
-    free(localB);
-    free(localC);
-
-    return 0;
+    return t2-t1;
 }

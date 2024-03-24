@@ -41,3 +41,74 @@ double* copyMatrix(double *matrix1, int rows, int columns) {
     }
     return copiedMatrix;
 }
+
+void writeMatrixToFile(double* array, const int rows, const int columns, const std::string& filename)
+{
+    std::ofstream outFile(filename, std::ofstream::out | std::ofstream::app);
+
+    if (!outFile.is_open()) {
+            std::cerr << "Error opening file: " << filename << std::endl;
+            return;
+    }
+
+    for (int i = 0; i < rows; i++) {
+        for (int j = 0; j < columns; j++) {
+            outFile << array[i*columns + j] << " ";
+        }
+        outFile << std::endl;
+    }
+    outFile << std::endl;
+
+    outFile.close();
+}
+
+bool findInMap(std::map<int,int> &map, int value, int* index)
+{
+    for (auto it = map.begin(); it != map.end(); ++it)
+    if (it->second == value) {
+        *index = it->first;
+        return true;
+    }
+
+    return false;
+}
+
+void printMatrixColumnMajor(double *array, const int rows, const int columns, const int rank)
+{
+    printf("RANK: %d\n", rank);
+    for (int i = 0; i < rows; i++) {
+        for (int j = 0 ; j < columns; j++) {
+            printf("%lf ", array[j*rows + i]);
+        }
+        printf("\n");
+    }
+}
+
+void generateMatrixColumnMajor(double *array, const int rows, const int columns) 
+{
+    for (int i = 0; i < rows; i++) {
+        for (int j = 0; j < columns; j++) {
+            array[j*rows + i] = (double) rand() / rand();
+        }
+    }
+}
+
+void writeMatrixToFileColumnMajor(double* array, const int rows, const int columns, const std::string& filename)
+{
+    std::ofstream outFile(filename, std::ofstream::out | std::ofstream::app);
+
+    if (!outFile.is_open()) {
+            std::cerr << "Error opening file: " << filename << std::endl;
+            return;
+    }
+
+    for (int i = 0; i < rows; i++) {
+        for (int j = 0; j < columns; j++) {
+            outFile << array[j*rows + i] << " ";
+        }
+        outFile << std::endl;
+    }
+    outFile << std::endl;
+
+    outFile.close();
+}

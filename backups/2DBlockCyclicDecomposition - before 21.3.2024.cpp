@@ -184,18 +184,8 @@ void GEMM_BlockCyclicDecomposer::squareTaskScattering(double* A, double* B, doub
     MPI_Type_create_resized(dummy, 0, sizeof(double), &globalBlock);
     MPI_Type_commit(&globalBlock);
 
-    scatterCountA = (int**) malloc(sizeof(int*) * cTilesPerDevice);
-    scatterCountB = (int**) malloc(sizeof(int*) * cTilesPerDevice);
-
-    for (int i = 0; i < cTilesPerDevice; i++) {
-        scatterCountA[i] = (int*) malloc(sizeof(int) * communicatorSize);
-        scatterCountB[i] = (int*) malloc(sizeof(int) * communicatorSize);
-        for (int j = 0; j < communicatorSize; j++) {
-            scatterCountA[i][j] = 1;
-            scatterCountB[i][j] = 1;
-        }
-    }
-
+    scatterCountA = (int*) malloc(sizeof(int) * communicatorSize);
+    scatterCountB = (int*) malloc(sizeof(int) * communicatorSize);
     
     /* Scatter Count is the same for everyone . */
     scatterCountC = (int*) malloc(sizeof(int) * communicatorSize);
@@ -204,43 +194,30 @@ void GEMM_BlockCyclicDecomposer::squareTaskScattering(double* A, double* B, doub
     }
 
     /* Needs to be 2D since we need them for gathering as well... */
-    scatterOffsetA = (int***) malloc(sizeof(int**) * cTilesPerDevice);
-    scatterOffsetB = (int***) malloc(sizeof(int**) * cTilesPerDevice);
     scatterOffsetC = (int**) malloc(sizeof(int*) * cTilesPerDevice);
-
     for (int i = 0; i < cTilesPerDevice; i++) {
         scatterOffsetC[i] = (int *) malloc(sizeof(int) * communicatorSize);
-        scatterOffsetA[i] = (int **) malloc(sizeof(int*) * helperTilesPerTask);
-        scatterOffsetB[i] = (int **) malloc(sizeof(int*) * helperTilesPerTask);
-        for (int j = 0; j < helperTilesPerTask; j++) {
-            scatterOffsetA[i][j] = (int*) malloc(sizeof(int) * communicatorSize);
-            scatterOffsetB[i][j] = (int*) malloc(sizeof(int) * communicatorSize);
-        }
     }
 
+    /* Needs to be 2D because we want multiple arrays depending on tiles necessary for task calculation */
+    scatterOffsetA = (int**) malloc(sizeof(int*) * helperTilesPerTask);
+    scatterOffsetB = (int**) malloc(sizeof(int*) * helperTilesPerTask);
+
+    for (int i = 0; i < helperTilesPerTask; i++) {
+        scatterOffsetA[i] = (int*) malloc(sizeof(int*) * communicatorSize);
+        scatterOffsetB[i] = (int*) malloc(sizeof(int*) * communicatorSize);
+    }
+
+    /* Create a set for A and B */
     std::map<int, int> aMap, bMap;
 
-    int ***routingMapA = (int***) malloc(sizeof(int**) * communicatorSize);
-    int ***routingMapB = (int***) malloc(sizeof(int**) * communicatorSize);
-
-    for (int i = 0; i < communicatorSize; i++) {
-        routingMapA[i] = (int**) malloc(sizeof(int*) * cTilesPerDevice);
-        routingMapB[i] = (int**) malloc(sizeof(int*) * cTilesPerDevice);
-
-        for (int j = 0; j < cTilesPerDevice; j++) {
-            routingMapA[i][j] = (int*) malloc(sizeof(int) * 1);
-            routingMapB[i][j] = (int*) malloc(sizeof(int) * 1);
-        }
-    }
-    
     double t1, t2, t3, scatterBandAtime = 0, scatterCtime=0;
+
     /* Completely square decomposition */
-    
-    t1 = MPI_Wtime();
     for (int k = 0; k < cTilesPerDevice; k++) {
         for (int i = 0; i < dRow; i++) {
             for (int j = 0; j < dCol; j++) {
-                    int skipIndex;
+                    int skipIndexA = -1, skipIndexB = -1;
                     Tile cTile = taskMap[i*dCol + j][k].cTile;
                     Tile* aTiles = taskMap[i*dCol + j][k].aTiles;
                     Tile* bTiles = taskMap[i*dCol + j][k].bTiles;
@@ -248,56 +225,50 @@ void GEMM_BlockCyclicDecomposer::squareTaskScattering(double* A, double* B, doub
                     int aRow = taskMap[i*dCol + j][k].aTiles[0].rowId;
                     int bCol = taskMap[i*dCol + j][k].bTiles[0].colId;
 
-                    if (findInMap(aMap, aRow, &skipIndex))
-                    {
-                        aMap.insert({k, skipIndex});
-                        scatterCountA[k][i*dCol + j] = 0;
-                        routingMapA[i*dCol + j][k][0] = skipIndex;
-                    }
-                    else {
-                        aMap.insert({k, aRow});
-                        scatterCountA[k][i*dCol + j] = 1;
-                        routingMapA[i*dCol + j][k][0] = k;
-                    }
-
-                    if (findInMap(bMap, bCol, &skipIndex))
-                    {
-                        bMap.insert({k, skipIndex});
-                        scatterCountB[k][i*dCol + j] = 0;
-                        routingMapB[i*dCol + j][k][0] = skipIndex;
-                    }
-                    else {
-                        bMap.insert({k, bCol});
-                        scatterCountB[k][i*dCol + j] = 1;
-                        routingMapB[i*dCol + j][k][0] = k;
-                    }
-
+                    /* Scatter C */
                     scatterOffsetC[k][i*dCol + j] = cTile.colId*blockColumns + cTile.rowId*blockRows*N;
-       
+
+                    scatterCountA[i*dCol + j] = 0;
+                    scatterCountB[i*dCol + j] = 0;
+
+                    if (!findInMap(aMap, aRow, &skipIndexA))
+                    {
+                        aMap.insert({k, aRow});
+                        scatterCountA[i*dCol + j] = 1;
+                    }
+
+                    if (!findInMap(bMap, bCol, &skipIndexB))
+                    {
+                        bMap.insert({k, bCol});
+                        scatterCountB[i*dCol + j] = 1;
+                    }
+                    
                     for (int taskNum = 0; taskNum < helperTilesPerTask; taskNum++) {
-                        scatterOffsetA[k][taskNum][i*dCol + j] = aTiles[taskNum].colId*blockColumns + aTiles[taskNum].rowId*blockRows*N;
-                        scatterOffsetB[k][taskNum][i*dCol + j] = bTiles[taskNum].colId*blockColumns + bTiles[taskNum].rowId*blockRows*N;
+                        scatterOffsetA[taskNum][i*dCol + j] = aTiles[taskNum].colId*blockColumns + aTiles[taskNum].rowId*blockRows*N;
+                        scatterOffsetB[taskNum][i*dCol + j] = bTiles[taskNum].colId*blockColumns + bTiles[taskNum].rowId*blockRows*N;
                     }
             }
         }
-    }
+
+        t1 = MPI_Wtime();
+        /* Send to device */
+        MPI_CHECK(MPI_Scatterv(C, scatterCountC, scatterOffsetC[k], globalBlock, localC[k], 1, tile, 0, GEMM_Communicator));
         t2 = MPI_Wtime();
-        /* C is scattered in a standard way */
-        for (int i = 0; i < cTilesPerDevice; i++) {
-            MPI_CHECK(MPI_Scatterv(C, scatterCountC, scatterOffsetC[i], globalBlock, localC[i], 1, tile, 0, GEMM_Communicator));
-            for (int j = 0; j < helperTilesPerTask; j++) {
-                MPI_CHECK(MPI_Scatterv(A, scatterCountA[i], scatterOffsetA[i][j], globalBlock, localA[i][j], scatterCountA[i][rank], tile, 0, GEMM_Communicator));
-                MPI_CHECK(MPI_Scatterv(B, scatterCountB[i], scatterOffsetB[i][j], globalBlock, localB[i][j], scatterCountB[i][rank], tile, 0, GEMM_Communicator));
-            }
-            // localA[i] = localA[routingMapA[rank][i][0]];
-            // localB[i] = localB[routingMapB[rank][i][0]];
+
+        for (int taskNum = 0; taskNum < helperTilesPerTask; taskNum++) {
+            MPI_CHECK(MPI_Scatterv(A, scatterCountA, scatterOffsetA[taskNum], globalBlock, localA[k][taskNum], 1, tile,  0, GEMM_Communicator));
+            MPI_CHECK(MPI_Scatterv(B, scatterCountB, scatterOffsetB[taskNum], globalBlock, localB[k][taskNum], 1, tile,  0, GEMM_Communicator));
         }
+        std::cout << "here" << std::endl;
         t3 = MPI_Wtime();
+        scatterCtime += t2-t1;
+        scatterBandAtime += t3-t2;
+    }
 
     printf("Rank: %d finished scattering\n", rank);
     
     if (rank == 0)
-        printf("Skatoalgorithmos: %lf, Scatter time: %lf\n", t2-t1, t3-t2);
+        printf("Scatter B and A: %lf, Scatter C time: %lf\n", scatterBandAtime, scatterCtime);
 
     #ifdef DEBUG
         for (int i = 0; i < cTilesPerDevice; i++){

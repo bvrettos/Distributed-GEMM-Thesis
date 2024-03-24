@@ -20,6 +20,6 @@ double MPI_Dgemm_Sequential(char TransA,  char TransB, long int M, long int N, l
 
 double MPI_Dgemm_Cyclic(char TransA,  char TransB, long int M, long int N, long int K,
   double alpha, double* A, long int ldA, double* B, long int ldB, double beta, double* C,
-  long int ldC);
+  long int ldC, int blockRows, int blockColumns);
 
 #endif

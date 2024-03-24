@@ -1,5 +1,4 @@
 #include "cuBLASMP_wrappers.hpp"
-#include "cmatrix.h"
 
 #include <assert.h>
 #include <math.h>
@@ -10,6 +9,11 @@
 
 #include <vector>
 #include <cublasmp.h>
+#include <validation.hpp>
+#include <cblas.h>
+#include <unistd.h>
+
+// #define VALIDATE
 
 /* Validation: Check testing.cpp validation */
 
@@ -19,329 +23,259 @@
         3. Create CAL communicator - DONE
         4. Create stream for localGPU - DONE
         5. Create handle for CUBLASMP - DONE
-        6. Initialize pointers for both matrices:
-            6a. global
-            6b. local
-            6c. device
-        7. Call cublasMpNumroc to ...
-        8. Copy data from host to device
+        6. Initialize pointers for both matrices: 
+            6a. global DONE
+            6b. local DONe
+            6c. device DONe
+        7. Call cublasMpNumroc to find size to allocate on Local matrix DONE
+        8. Copy data from host to device DONE
         9. Create grid with cublasMpGridCreate DONE
         10. Create Matrix descriptors DONE
         11. Allocate necessary memory using... DONE
-        12. Sync processes
-        13. call cublasMpGemm
+        12. Sync processes DONE
+        13. call cublasMpGemm DONE
         14. Destroy everything DONE
-    */
+*/
 
-// void cuBLASMpDgemmWrap(char TransA,  char TransB, long int M, long int N, long int K,
-//   double alpha, double* A, long int ldA, double* B, long int ldB, double beta, double* C,
-//   long int ldC, short numberOfDevices, int dev_ids[])
-// {
-//     char orientation = 'c';
+void cuBLASMpDgemmWrap(char TransA,  char TransB, long int M, long int N, long int K,
+  double alpha, double* A, long int ldA, double* B, long int ldB, double beta, double* C,
+  long int ldC, int Mb, int Nb, int dRow, int dCol)
+{
+    char orientation = 'r';
+    int ia = 1, ja = 1, ib = 1, jb = 1, ic = 1, jc = 1;
 
-//     /* 1. Find rank and size of World */
-//     int rank, size;
-//     MPI_Comm_size(MPI_COMM_WORLD, &size);
-//     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    /* 1. Find rank and size of World */
+    int rank, size;
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+
+    /* 2. Find ID of localGPU */
+    int localDeviceID = rank % (dRow*dCol);
+    CUDA_CHECK(cudaSetDevice(localDeviceID));
+
+    int localRow = (orientation == 'c' ? rank % dRow : rank / dCol);
+    int localCol = (orientation == 'c' ? rank / dRow : rank % dCol);
+
+    /* 3. Create CAL Communicator */
+    cal_comm_t calCommunicator = createCalCommunicator(rank, size, localDeviceID);
+
+    /* 4. Create Stream for Local GPU */
+    cudaStream_t stream = NULL;
+    CUDA_CHECK(cudaStreamCreate(&stream));
     
-//     /* BONUS STEP: calculate dRow, dCol */
-//     int dRow, dCol;
-//     calculateGridDimensions(numberOfDevices, dRow, dCol);
+    /* 5. Create handle for cuBLASMp */
+    cublasMpHandle_t handle = NULL;
+    CUBLAS_CHECK(cublasMpCreate(&handle, stream));
 
-//     /* 2. Find ID of localGPU */
-//     int localDeviceID = getLocalDevice();
-//     CUDA_CHECK(cudaSetDevice(local_device));
+    /* 6. Initialize Pointers and Matrix Handlers */
+    cublasMpMatrixDescriptor_t descA, descB, descC;
+    double *d_A, *d_B, *d_C, *d_work;
 
-//     int localRow = (orientation == 'c' ? rank % nprow : rank / npcol);
-//     int localCol = (orientation == 'c' ? rank / nprow : rank % npcol);
+    size_t workspaceInBytesOnDevice = 0;
+    size_t workspaceInBytesOnHost = 0;
 
-//     /* 3. Create CAL Communicator */
-//     cal_comm_t calCommunicator = createCalCommunicator(rank, size, localDeviceID);
+    /* Decompose Matrices */    
+    pblasDecomposer decomposerA(M, K, Mb, Nb, dRow, dCol, A, MPI_COMM_WORLD);
+    pblasDecomposer decomposerB(K, N, Mb, Nb, dRow, dCol, B, MPI_COMM_WORLD);
+    pblasDecomposer decomposerC(M, N, Mb, Nb, dRow, dCol, C, MPI_COMM_WORLD);
 
-//     /* 4. Create Stream for Local GPU */
-//     cudaStream_t stream = NULL;
-//     CUDA_CHECK(cudaStreamCreate(&stream));
-    
-//     /* 5. Create handle for cuBLASMp */
-//     cublasMpHandle_t handle = NULL;
-//     CUBLAS_CHECK(cublasMpCreate(&handle, stream));
+    const int64_t llda = decomposerA.localRows;
+    const int64_t loc_n_a = decomposerA.localColumns;
 
-//     /* 6. Initialize Pointers and Matrix Handlers */
-//     cublasMpMatrixDescriptor_t descA, descB, descC;
-//     double *d_A, *d_B, *d_C, *d_work;
+    const int64_t lldb = decomposerB.localRows;
+    const int64_t loc_n_b = decomposerB.localColumns;
 
-//     size_t workspaceInBytesOnDevice = 0;
-//     size_t workspaceInBytesOnHost = 0;
+    const int64_t lldc = decomposerC.localRows;
+    const int64_t loc_n_c = decomposerC.localColumns;
 
-//     /* 9. Create Grid */
-//     cublasMpGrid_t grid = NULL;
-//     CUBLAS_CHECK(cublasMpGridCreate(
-//         handle,
-//         dRow,
-//         dCol,
-//         orientation == 'c' ? CUBLASMP_GRID_LAYOUT_COL_MAJOR : CUBLASMP_GRID_LAYOUT_ROW_MAJOR,
-//         cal_comm,
-//         &grid));
+    double *localA, *localB, *localC;
+    localA = decomposerA.localMatrix;
+    localB = decomposerB.localMatrix;
+    localC = decomposerC.localMatrix;
 
-//     /* 10. Create Matrix Descriptors */
-//     CUBLAS_CHECK(
-//         cublasMpMatrixDescriptorCreate(handle, global_m_a, global_n_a, mbA, nbA, 0, 0, llda, CUDA_R_64F, grid, &descA));
-//     CUBLAS_CHECK(
-//         cublasMpMatrixDescriptorCreate(handle, global_m_b, global_n_b, mbB, nbB, 0, 0, lldb, CUDA_R_64F, grid, &descB));
-//     CUBLAS_CHECK(
-//         cublasMpMatrixDescriptorCreate(handle, global_m_c, global_n_c, mbC, nbC, 0, 0, lldc, CUDA_R_64F, grid, &descC));
+    CUDA_CHECK(cudaMallocAsync(&d_A, llda * loc_n_a *sizeof(double), stream));
+    CUDA_CHECK(cudaMallocAsync(&d_B, lldb * loc_n_b *sizeof(double), stream));
+    CUDA_CHECK(cudaMallocAsync(&d_C, lldc * loc_n_c *sizeof(double), stream));
 
-//     /* 11. Calculate necessary memory size */
-//     CUBLAS_CHECK(cublasMpGemm_bufferSize(
-//         handle,
-//         CUBLAS_OP_N,
-//         CUBLAS_OP_N,
-//         m,
-//         n,
-//         k,
-//         &alpha,
-//         d_A,
-//         ia,
-//         ja,
-//         descA,
-//         d_B,
-//         ib,
-//         jb,
-//         descB,
-//         &beta,
-//         d_C,
-//         ic,
-//         jc,
-//         descC,
-//         CUDA_R_64F,
-//         &workspaceInBytesOnDevice,
-//         &workspaceInBytesOnHost));
+    CUDA_CHECK(cudaMemcpyAsync(d_A, localA, llda * loc_n_a * sizeof(double), cudaMemcpyHostToDevice, stream));
+    CUDA_CHECK(cudaMemcpyAsync(d_B, localB, lldb * loc_n_b * sizeof(double), cudaMemcpyHostToDevice, stream));
+    CUDA_CHECK(cudaMemcpyAsync(d_C, localC, lldc * loc_n_c * sizeof(double), cudaMemcpyHostToDevice, stream));
 
-//     /* 14. Destroy Everything */
-//     CUBLAS_CHECK(cublasMpMatrixDescriptorDestroy(handle, descA));
-//     CUBLAS_CHECK(cublasMpMatrixDescriptorDestroy(handle, descB));
-//     CUBLAS_CHECK(cublasMpMatrixDescriptorDestroy(handle, descC));
+    /* 9. Create Grid */
+    cublasMpGrid_t grid = NULL;
+    CUBLAS_CHECK(cublasMpGridCreate(
+        handle,
+        dRow,
+        dCol,
+        CUBLASMP_GRID_LAYOUT_ROW_MAJOR,
+        calCommunicator,
+        &grid));
 
-//     CUBLAS_CHECK(cublasMpGridDestroy(handle, grid));
+    /* 10. Create Matrix Descriptors */
+    CUBLAS_CHECK(
+        cublasMpMatrixDescriptorCreate(handle, M, K, Mb, Nb, 0, 0, llda, CUDA_R_64F, grid, &descA));
+    CUBLAS_CHECK(
+        cublasMpMatrixDescriptorCreate(handle, K, N, Mb, Nb, 0, 0, lldb, CUDA_R_64F, grid, &descB));
+    CUBLAS_CHECK(
+        cublasMpMatrixDescriptorCreate(handle, M, N, Mb, Nb, 0, 0, lldc, CUDA_R_64F, grid, &descC));
 
-//     CUBLAS_CHECK(cublasMpDestroy(handle));
+    /* 11. Calculate necessary memory size */
+    CUBLAS_CHECK(cublasMpGemm_bufferSize(
+        handle,
+        CUBLAS_OP_N,
+        CUBLAS_OP_N,
+        M,
+        N,
+        K,
+        &alpha,
+        d_A,
+        ia,
+        ja,
+        descA,
+        d_B,
+        ib,
+        jb,
+        descB,
+        &beta,
+        d_C,
+        ic,
+        jc,
+        descC,
+        CUDA_R_64F,
+        &workspaceInBytesOnDevice,
+        &workspaceInBytesOnHost));
 
-//     CUDA_CHECK(cudaFreeAsync(d_A, stream));
-//     CUDA_CHECK(cudaFreeAsync(d_B, stream));
-//     CUDA_CHECK(cudaFreeAsync(d_C, stream));
-//     CUDA_CHECK(cudaFreeAsync(d_work, stream));
+    CUDA_CHECK(cudaMallocAsync(&d_work, workspaceInBytesOnDevice, stream));
+    std::vector<int8_t> h_work(workspaceInBytesOnHost);
 
-//     CAL_CHECK(cal_comm_barrier(calCommunicator, stream));
+    CAL_CHECK(cal_stream_sync(calCommunicator, stream));
+    CAL_CHECK(cal_comm_barrier(calCommunicator, stream));
 
-//     CAL_CHECK(cal_comm_destroy(calCommunicator));
+    const double begin = MPI_Wtime();
+    CUBLAS_CHECK(cublasMpGemm(
+        handle,
+        CUBLAS_OP_N,
+        CUBLAS_OP_N,
+        M,
+        N,
+        K,
+        &alpha,
+        d_A,
+        ia,
+        ja,
+        descA,
+        d_B,
+        ib,
+        jb,
+        descB,
+        &beta,
+        d_C,
+        ic,
+        jc,
+        descC,
+        CUDA_R_64F,
+        d_work,
+        workspaceInBytesOnDevice,
+        h_work.data(),
+        workspaceInBytesOnHost));
 
-//     CUDA_CHECK(cudaStreamDestroy(stream));
+    CUDA_CHECK(cudaMemcpyAsync(localC, d_C, lldc * loc_n_c * sizeof(double), cudaMemcpyDeviceToHost, stream));
 
-//     MPI_Barrier(MPI_COMM_WORLD);
-// }
+    CAL_CHECK(cal_stream_sync(calCommunicator, stream));
+    CAL_CHECK(cal_comm_barrier(calCommunicator, stream));
+
+    decomposerC.gatherMatrix();
+
+    const double end = MPI_Wtime();
+
+    if (rank == 0)
+        printf("Rank: %d Duration: %lf GFlops: %lf\n", rank,  end - begin, (2 * M * N * K * 1e-9) / (end - begin));
+
+    /* 14. Destroy Everything */
+    CUBLAS_CHECK(cublasMpMatrixDescriptorDestroy(handle, descA));
+    CUBLAS_CHECK(cublasMpMatrixDescriptorDestroy(handle, descB));
+    CUBLAS_CHECK(cublasMpMatrixDescriptorDestroy(handle, descC));
+
+    CUBLAS_CHECK(cublasMpGridDestroy(handle, grid));
+
+    CUBLAS_CHECK(cublasMpDestroy(handle));
+
+    CUDA_CHECK(cudaFreeAsync(d_A, stream));
+    CUDA_CHECK(cudaFreeAsync(d_B, stream));
+    CUDA_CHECK(cudaFreeAsync(d_C, stream));
+    CUDA_CHECK(cudaFreeAsync(d_work, stream));
+
+    CAL_CHECK(cal_comm_barrier(calCommunicator, stream));
+
+    CAL_CHECK(cal_comm_destroy(calCommunicator));
+
+    CUDA_CHECK(cudaStreamDestroy(stream));
+
+    MPI_Barrier(MPI_COMM_WORLD);
+}
 
 int main(int argc, char* argv[])
 {
+    MPI_Init(&argc, &argv);
 
-    // MPI_Init(NULL, NULL);
+    int rank;
+    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-    // const int64_t m = 10;
-    // const int64_t n = 10;
-    // const int64_t k = 10;
-    // const int64_t ia = 3;
-    // const int64_t ja = 3;
-    // const int64_t ib = 3;
-    // const int64_t jb = 1;
-    // const int64_t ic = 1;
-    // const int64_t jc = 1;
-    // const int64_t mbA = 2;
-    // const int64_t nbA = 2;
-    // const int64_t mbB = 2;
-    // const int64_t nbB = 2;
-    // const int64_t mbC = 2;
-    // const int64_t nbC = 2;
+    int M, N, K;
+    int lda, ldb, ldc;
+    M = 8192*2;
+    N = 8192*2;
+    K = 8192*2;
 
-    // const int nprow = 2; //dRow
-    // const int npcol = 1; //dColumn
-    
-    // int rank, nranks;
+    double alpha, beta;
+    alpha = 0.213;
+    beta = 1.329;
 
-    // MPI_Comm_size(MPI_COMM_WORLD, &nranks);
-    // MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    double *A, *B, *C, *referenceC;
 
-    // const int myprow = ('c' == 'c' ? rank % nprow : rank / npcol);
-    // const int mypcol = ('c' == 'c' ? rank / nprow : rank % npcol);
+    if (rank == 0) {
+        A = (double*) malloc(sizeof(double) * M * K);
+        B = (double*) malloc(sizeof(double) * N * K);
+        C = (double*) malloc(sizeof(double) * M * N);
 
-    // int localRank, local_device, deviceCount;
-    // getLocalDevice(&localRank, &deviceCount, &local_device);
-    // CUDA_CHECK(cudaSetDevice(local_device));
-    // CUDA_CHECK(cudaFree(nullptr));
+        generateMatrixColumnMajor(A, M, K);
+        generateMatrixColumnMajor(B, N, K);
+        generateMatrixColumnMajor(C, M, N);
 
-    // cal_comm_t cal_comm = createCalCommunicator(rank, nranks, local_device);
+        referenceC = copyMatrix(C, M, N);
+    }
 
-    // cudaStream_t stream = nullptr;
-    // CUDA_CHECK(cudaStreamCreate(&stream));
+    lda = M;
+    ldb = K;
+    ldc = M;
 
-    // cublasMpHandle_t handle = nullptr;
-    // CUBLAS_CHECK(cublasMpCreate(&handle, stream));
+    int Mb, Nb;
+    int dRow, dCol;
 
-    // cublasMpGrid_t grid = nullptr;
+    Mb = 512;
+    Nb = 512;
 
-    // cublasMpMatrixDescriptor_t descA = nullptr;
-    // cublasMpMatrixDescriptor_t descB = nullptr;
-    // cublasMpMatrixDescriptor_t descC = nullptr;
+    dRow = 2;
+    dCol = 1;
 
-    // double* d_A = nullptr;
-    // double* d_B = nullptr;
-    // double* d_C = nullptr;
+    MPI_Barrier(MPI_COMM_WORLD);
 
-    // double* d_work = nullptr;
+    double t1 = MPI_Wtime();
 
-    // double alpha = 1.0;
-    // double beta = 1.0;
+    cuBLASMpDgemmWrap('c', 'c', M, N, K, alpha, A, lda, B, ldb, beta, C, ldc, Mb, Nb, dRow, dCol);
 
-    // size_t workspaceInBytesOnDevice = 0;
-    // size_t workspaceInBytesOnHost = 0;
+    double t2 = MPI_Wtime();
 
-    // const int64_t global_m_a = (ia - 1) + m;
-    // const int64_t global_n_a = (ja - 1) + k;
-    // const int64_t global_m_b = (ib - 1) + k;
-    // const int64_t global_n_b = (jb - 1) + n;
-    // const int64_t global_m_c = (ic - 1) + m;
-    // const int64_t global_n_c = (jc - 1) + n;
+    printf("Rank: %d Elapsed Time: %lf\n", rank, t2 - t1);
 
-    // const int64_t llda = cublasMpNumroc(global_m_a, mbA, myprow, 0, nprow);
-    // const int64_t loc_n_a = cublasMpNumroc(global_n_a, nbA, mypcol, 0, npcol);
+    if (rank == 0) {
+        #ifdef VALIDATE
+            cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, M, N, K, alpha, A, lda, B, ldb, beta, referenceC, ldc);
+            Dtest_equality(C, referenceC, M*N);
+        #endif
+    }
 
-    // const int64_t lldb = cublasMpNumroc(global_m_b, mbB, myprow, 0, nprow);
-    // const int64_t loc_n_b = cublasMpNumroc(global_n_b, nbB, mypcol, 0, npcol);
-
-    // const int64_t lldc = cublasMpNumroc(global_m_c, mbC, myprow, 0, nprow);
-    // const int64_t loc_n_c = cublasMpNumroc(global_n_c, nbC, mypcol, 0, npcol);
-
-    // std::vector<double> h_A(llda * loc_n_a, 0);
-    // std::vector<double> h_B(lldb * loc_n_b, 0);
-    // std::vector<double> h_C(lldc * loc_n_c, 0);
-
-    // std::cout << h_A.size() << " " << h_B.size() << " " << h_C.size() << std::endl;
-
-    // generate_random_matrix(m, k, h_A.data(), mbA, nbA, ia, ja, llda, nprow, npcol, myprow, mypcol);
-    // generate_random_matrix(k, n, h_B.data(), mbB, nbB, ib, jb, lldb, nprow, npcol, myprow, mypcol);
-    // generate_random_matrix(m, n, h_C.data(), mbC, nbC, ic, jc, lldc, nprow, npcol, myprow, mypcol);
-
-    // CUDA_CHECK(cudaMallocAsync(&d_A, llda * loc_n_a * sizeof(double), stream));
-    // CUDA_CHECK(cudaMallocAsync(&d_B, lldb * loc_n_b * sizeof(double), stream));
-    // CUDA_CHECK(cudaMallocAsync(&d_C, lldc * loc_n_c * sizeof(double), stream));
-
-    // CUDA_CHECK(cudaMemcpyAsync(d_A, h_A.data(), llda * loc_n_a * sizeof(double), cudaMemcpyHostToDevice, stream));
-    // CUDA_CHECK(cudaMemcpyAsync(d_B, h_B.data(), lldb * loc_n_b * sizeof(double), cudaMemcpyHostToDevice, stream));
-    // CUDA_CHECK(cudaMemcpyAsync(d_C, h_C.data(), lldc * loc_n_c * sizeof(double), cudaMemcpyHostToDevice, stream));
-
-    // CUBLAS_CHECK(cublasMpGridCreate(
-    //     handle,
-    //     nprow,
-    //     npcol,
-    //     'c' == 'c' ? CUBLASMP_GRID_LAYOUT_COL_MAJOR : CUBLASMP_GRID_LAYOUT_ROW_MAJOR,
-    //     cal_comm,
-    //     &grid));
-
-    // CUBLAS_CHECK(
-    //     cublasMpMatrixDescriptorCreate(handle, global_m_a, global_n_a, mbA, nbA, 0, 0, llda, CUDA_R_64F, grid, &descA));
-    // CUBLAS_CHECK(
-    //     cublasMpMatrixDescriptorCreate(handle, global_m_b, global_n_b, mbB, nbB, 0, 0, lldb, CUDA_R_64F, grid, &descB));
-    // CUBLAS_CHECK(
-    //     cublasMpMatrixDescriptorCreate(handle, global_m_c, global_n_c, mbC, nbC, 0, 0, lldc, CUDA_R_64F, grid, &descC));
-
-    // CUBLAS_CHECK(cublasMpGemm_bufferSize(
-    //     handle,
-    //     CUBLAS_OP_N,
-    //     CUBLAS_OP_N,
-    //     m,
-    //     n,
-    //     k,
-    //     &alpha,
-    //     d_A,
-    //     ia,
-    //     ja,
-    //     descA,
-    //     d_B,
-    //     ib,
-    //     jb,
-    //     descB,
-    //     &beta,
-    //     d_C,
-    //     ic,
-    //     jc,
-    //     descC,
-    //     CUDA_R_64F,
-    //     &workspaceInBytesOnDevice,
-    //     &workspaceInBytesOnHost));
-
-    // CUDA_CHECK(cudaMallocAsync(&d_work, workspaceInBytesOnDevice, stream));
-
-    // std::vector<int8_t> h_work(workspaceInBytesOnHost);
-
-    // CAL_CHECK(cal_stream_sync(cal_comm, stream));
-    // CAL_CHECK(cal_comm_barrier(cal_comm, stream));
-
-    // const double begin = MPI_Wtime();
-
-    // CUBLAS_CHECK(cublasMpGemm(
-    //     handle,
-    //     CUBLAS_OP_N,
-    //     CUBLAS_OP_N,
-    //     m,
-    //     n,
-    //     k,
-    //     &alpha,
-    //     d_A,
-    //     ia,
-    //     ja,
-    //     descA,
-    //     d_B,
-    //     ib,
-    //     jb,
-    //     descB,
-    //     &beta,
-    //     d_C,
-    //     ic,
-    //     jc,
-    //     descC,
-    //     CUDA_R_64F,
-    //     d_work,
-    //     workspaceInBytesOnDevice,
-    //     h_work.data(),
-    //     workspaceInBytesOnHost));
-
-    // CAL_CHECK(cal_stream_sync(cal_comm, stream));
-    // CAL_CHECK(cal_comm_barrier(cal_comm, stream));
-
-    // const double end = MPI_Wtime();
-
-    // printf("Duration: %lf GFlops: %lf\n", end - begin, (2 * m * n * k * 1e-9) / (end - begin));
-
-    // CUBLAS_CHECK(cublasMpMatrixDescriptorDestroy(handle, descA));
-    // CUBLAS_CHECK(cublasMpMatrixDescriptorDestroy(handle, descB));
-    // CUBLAS_CHECK(cublasMpMatrixDescriptorDestroy(handle, descC));
-
-    // CUBLAS_CHECK(cublasMpGridDestroy(handle, grid));
-
-    // CUBLAS_CHECK(cublasMpDestroy(handle));
-
-    // CUDA_CHECK(cudaFreeAsync(d_A, stream));
-    // CUDA_CHECK(cudaFreeAsync(d_B, stream));
-    // CUDA_CHECK(cudaFreeAsync(d_C, stream));
-    // CUDA_CHECK(cudaFreeAsync(d_work, stream));
-
-    // CAL_CHECK(cal_comm_barrier(cal_comm, stream));
-
-    // CAL_CHECK(cal_comm_destroy(cal_comm));
-
-    // CUDA_CHECK(cudaStreamDestroy(stream));
-
-    // MPI_Barrier(MPI_COMM_WORLD);
-
-    // MPI_Finalize();
+    MPI_Finalize();
 
     return 0;
 };

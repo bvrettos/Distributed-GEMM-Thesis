@@ -48,8 +48,13 @@ set (CAL_LINK "-L${CAL_LD} -lcal")
 
 # Set numactl Stuff
 set (NUMACTL_PREFIX $ENV{NUMACTL_PATH})
-set (NUMACTL_INCLUDE_DIRS ${NUMACTL_PATH}/include)
+set (NUMACTL_INCLUDE_DIRS ${NUMACTL_PREFIX}/include)
 set (NUMACTL_LINK "-L${NUMACTL_PATH}/lib -lnuma")
+
+# Set SCALAPACK Stuff
+set (SCALAPACK_PREFIX $ENV{SCALAPACK_PATH})
+set (SCALAPACK_INCLUDE_DIRS ${SCALAPACK_PREFIX}/include)
+set (SCALAPACK_LINK "-L${SCALAPACK_PREFIX}/lib -lscalapack")
 
 add_definitions(-DMAX_BACKEND_L=8)
 add_definitions(-DREDUCE_WORKERS_PERDEV=10)
@@ -63,11 +68,13 @@ include_directories(
     ${CUBLASMP_INCLUDE_DIRS}
     ${CAL_INCLUDE_DIRS}
     ${NUMACTL_INCLUDE_DIRS}
+    ${SCALAPACK_INCLUDE_DIRS}
     include
 )
 
 add_executable(cublasmpTest
-    src/cuBLASMPtest.cpp
+    src/cuBLASMPtest.cpp src/cmatrix.cpp src/pblasDecomposition.cpp
+    src/validation.cpp
 )
 
 add_executable(mpiBenchmark
@@ -76,5 +83,11 @@ add_executable(mpiBenchmark
     src/cmatrix.cpp
 )
 
-target_link_libraries(cublasmpTest ${MPI_LINK} ${OPENBLAS_LINK} ${CAL_LINK} ${CUBLASMP_LINK} ${CUDA_LINK})
+add_executable(pblasGEMM
+    src/pblasGEMM.cpp src/pblasDecomposition.cpp
+    src/cmatrix.cpp src/validation.cpp
+)
+
+target_link_libraries(cublasmpTest ${MPI_LINK} ${OPENBLAS_LINK} ${CAL_LINK} ${CUBLASMP_LINK} ${CUDA_LINK} ${SCALAPACK_LINK})
 target_link_libraries(mpiBenchmark ${MPI_LINK} ${PARALIA_LINK} ${OPENBLAS_LINK} ${NUMACTL_LINK} ${CUDA_LINK})
+target_link_libraries(pblasGEMM ${MPI_LINK} ${OPENBLAS_LINK} ${SCALAPACK_LINK})

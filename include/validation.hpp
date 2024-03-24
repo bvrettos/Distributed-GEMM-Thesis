@@ -1,10 +1,8 @@
 #ifndef VALIDATION_HPP
 #define VALIDATION_HPP
 
-
 #include <cfloat>
 #include <cstdio>
-
 
 template <typename T>
 double abs(T x);
