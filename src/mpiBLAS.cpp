@@ -3,7 +3,33 @@
 double MPI_Dgemm_Sequential(char TransA,  char TransB, long int M, long int N, long int K,
   double alpha, double* A, long int ldA, double* B, long int ldB, double beta, double* C,
   long int ldC)
-{
+{      
+    CBLAS_TRANSPOSE gemmTransA, gemmTransB;
+    gemmTransA = CblasNoTrans;
+    gemmTransB = CblasNoTrans;
+
+    if (TransA == 'n' || TransA == 'N') {
+        gemmTransA = CblasNoTrans;
+    }
+    else if (TransA == 't' || TransA == 'T' || TransA == 'c' || TransA == 'C') {
+        gemmTransA = CblasTrans;
+    }
+    else {
+        /* Translation not recognized, return error*/
+        return -1;
+    }
+
+    if (TransB == 'n' || TransB == 'N') {
+        gemmTransB = CblasNoTrans;
+    }
+    else if (TransB == 't' || TransB == 'T' || TransB == 'c' || TransB == 'C') {
+        gemmTransB = CblasTrans;
+    }
+    else {
+        /* Translation not recognized, return error*/
+        return -1;
+    }
+
     /* Check if MPI has been initialized */
     int initializedMPI;
     MPI_Initialized(&initializedMPI);
@@ -25,18 +51,21 @@ double MPI_Dgemm_Sequential(char TransA,  char TransB, long int M, long int N, l
     int localN = Decomposer.localN;
     int localK = Decomposer.localK;
 
+    int llda = localK;
+    int lldb = localN;
+    int lldc = localN;
+
+    double t1 = MPI_Wtime();
     localA = (double*) malloc(sizeof(double) * localM * localK);
     localB = (double*) malloc(sizeof(double) * localN * localK);
     localC = (double*) malloc(sizeof(double) * localM * localN);
 
     Decomposer.scatterMatrices(A, B, C, localA, localB, localC);
+    double t2 = MPI_Wtime();
 
-    double t1, t2;
-    t1 = MPI_Wtime();
+    cblas_dgemm(CblasRowMajor, gemmTransA, gemmTransB, localM, localN, localK, alpha, localA, llda, localB, lldb, beta, localC, lldc);
 
-    cblas_dgemm(CblasRowMajor, CblasNoTrans, CblasNoTrans, localM, localN, localK, alpha, localA, localK, localB, localN, beta, localC, localN);
-
-    t2 = MPI_Wtime();
+    double t3 = MPI_Wtime();
 
     Decomposer.gatherResult(C, localC);
 
@@ -44,7 +73,7 @@ double MPI_Dgemm_Sequential(char TransA,  char TransB, long int M, long int N, l
     free(localB);
     free(localC);
 
-    return t2-t1;
+    return t3-t2;
 }
 
 double MPI_Dgemm_Cyclic(char TransA,  char TransB, long int M, long int N, long int K,
@@ -101,9 +130,8 @@ double MPI_Dgemm_Cyclic(char TransA,  char TransB, long int M, long int N, long 
             localB[i][j] = (double*) malloc(sizeof(double) * blockRows * blockColumns);
         }
     }
-    timer4 = MPI_Wtime();
 
-    
+    timer4 = MPI_Wtime();
 
     if (decomposer.squareDecomposition)
         decomposer.squareTaskScattering(A, B, C, localA, localB, localC);

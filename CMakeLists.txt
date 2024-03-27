@@ -77,17 +77,23 @@ add_executable(cublasmpTest
     src/validation.cpp
 )
 
-add_executable(mpiBenchmark
-    src/mpiBenchmark.cpp src/cudaCommunicator.cpp src/mpiBLAS.cpp 
-    src/2DBlockCyclicDecomposition.cpp src/2DBlockSequentialDecomposition.cpp src/validation.cpp
-    src/cmatrix.cpp
-)
+# add_executable(mpiBenchmark
+#     src/mpiBenchmark.cpp src/cudaCommunicator.cpp src/mpiBLAS.cpp 
+#     src/2DBlockCyclicDecomposition.cpp src/2DBlockSequentialDecomposition.cpp src/validation.cpp
+#     src/cmatrix.cpp
+# )
 
 add_executable(pblasGEMM
     src/pblasGEMM.cpp src/pblasDecomposition.cpp
     src/cmatrix.cpp src/validation.cpp
 )
 
+add_executable(cyclicDecomposition
+    src/2DBlockCyclicDecomposition.cpp src/cmatrix.cpp
+
+)
+
 target_link_libraries(cublasmpTest ${MPI_LINK} ${OPENBLAS_LINK} ${CAL_LINK} ${CUBLASMP_LINK} ${CUDA_LINK} ${SCALAPACK_LINK})
-target_link_libraries(mpiBenchmark ${MPI_LINK} ${PARALIA_LINK} ${OPENBLAS_LINK} ${NUMACTL_LINK} ${CUDA_LINK})
+# target_link_libraries(mpiBenchmark ${MPI_LINK} ${PARALIA_LINK} ${OPENBLAS_LINK} ${NUMACTL_LINK} ${CUDA_LINK})
 target_link_libraries(pblasGEMM ${MPI_LINK} ${OPENBLAS_LINK} ${SCALAPACK_LINK})
+target_link_libraries(cyclicDecomposition ${MPI_LINK})

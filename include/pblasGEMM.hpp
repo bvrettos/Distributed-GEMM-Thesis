@@ -29,6 +29,6 @@ extern "C" {
                 double * C, int * IC, int * JC, int * DESCC );
 }
 
-void pblasDgemm(char* TransA, char* TransB, int M, int N, int K, double alpha, double* A, int lda, double* B, int ldb, double beta,double* C, int ldc, int Mb, int Nb, int dRow, int dCol);
+void pblasDgemm(char* TransA, char* TransB, int M, int N, int K, double alpha, double* A, int lda, double* B, int ldb, double beta, double* C, int ldc, int Mb, int Nb, int dRow, int dCol);
 
 #endif
