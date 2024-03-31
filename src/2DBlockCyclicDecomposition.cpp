@@ -106,22 +106,3 @@ BlockCyclicMatrixDecomposer::~BlockCyclicMatrixDecomposer()
 {
 
 }
-
-int main(int argc, char* argv[])
-{
-    MPI_Init(&argc, &argv);
-    int rank, size;
-
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-    MPI_Comm_size(MPI_COMM_WORLD, &size);
-
-    int M = 64;
-    int N = 64;
-    int blockRows = 16;
-    int blockColumns = 8;
-
-    BlockCyclicMatrixDecomposer decomposer(M, N, blockRows, blockColumns, MPI_COMM_WORLD);
-    MPI_Finalize();
-
-    return 0;
-}

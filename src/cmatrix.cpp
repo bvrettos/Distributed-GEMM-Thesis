@@ -62,17 +62,6 @@ void writeMatrixToFile(double* array, const int rows, const int columns, const s
     outFile.close();
 }
 
-bool findInMap(std::map<int,int> &map, int value, int* index)
-{
-    for (auto it = map.begin(); it != map.end(); ++it)
-    if (it->second == value) {
-        *index = it->first;
-        return true;
-    }
-
-    return false;
-}
-
 void printMatrixColumnMajor(double *array, const int rows, const int columns, const int rank)
 {
     printf("RANK: %d\n", rank);

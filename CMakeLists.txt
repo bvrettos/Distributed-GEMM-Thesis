@@ -2,14 +2,14 @@
 cmake_minimum_required(VERSION 3.10)
 
 # Project name
-project(MPI-CUDA)
+project(MPI-CUDA LANGUAGES C CXX CUDA)
 
 # Set C++ standard (optional)
 set(CMAKE_CUDA_STANDARD 14)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
 # Set CUDA Stuff
-set(CUDA_PREFIX "/usr/local/cuda-12.1")
+set (CUDA_PREFIX "/usr/local/cuda-12.1")
 set (CUDA_LD ${CUDA_PREFIX}/lib64) # or /lib depending on system
 set (CUDA_LINK "-L${CUDA_LD} -lcublas -lcurand -lcuda -lcudart")
 set (CUDA_INCLUDE_DIRS ${CUDA_PREFIX}/include ${CUDA_PREFIX}/samples/common/inc)
@@ -72,28 +72,37 @@ include_directories(
     include
 )
 
-add_executable(cublasmpTest
-    src/cuBLASMPtest.cpp src/cmatrix.cpp src/pblasDecomposition.cpp
-    src/validation.cpp
+add_executable(cublasmpBenchmark
+    src/cuBLASMpBenchmark.cpp src/cuBLASMpWrapped.cpp 
+    src/pblasDecomposition.cpp src/cudaCommunicator.cpp src/calSetup.cpp
+    src/validation.cpp src/cmatrix.cpp src/logging.cpp src/matrixGeneration.cu
 )
-
-# add_executable(mpiBenchmark
-#     src/mpiBenchmark.cpp src/cudaCommunicator.cpp src/mpiBLAS.cpp 
-#     src/2DBlockCyclicDecomposition.cpp src/2DBlockSequentialDecomposition.cpp src/validation.cpp
-#     src/cmatrix.cpp
-# )
 
 add_executable(pblasGEMM
     src/pblasGEMM.cpp src/pblasDecomposition.cpp
     src/cmatrix.cpp src/validation.cpp
 )
 
-add_executable(cyclicDecomposition
-    src/2DBlockCyclicDecomposition.cpp src/cmatrix.cpp
+# add_executable(cyclicDecomposition
+#     src/2DBlockCyclicDecomposition.cpp 
+#     src/cmatrix.cpp
+# )
 
+add_executable(paraliaBenchmark
+    src/paraliaBenchmark.cpp src/mpiPARALiA.cpp
+    src/2DBlockSequentialDecomposition.cpp src/cudaCommunicator.cpp 
+    src/logging.cpp src/matrixGeneration.cu src/cmatrix.cpp
 )
 
-target_link_libraries(cublasmpTest ${MPI_LINK} ${OPENBLAS_LINK} ${CAL_LINK} ${CUBLASMP_LINK} ${CUDA_LINK} ${SCALAPACK_LINK})
-# target_link_libraries(mpiBenchmark ${MPI_LINK} ${PARALIA_LINK} ${OPENBLAS_LINK} ${NUMACTL_LINK} ${CUDA_LINK})
+add_executable(mpiBenchmark
+    src/mpiBenchmark.cpp src/mpiBLAS.cpp
+    src/2DBlockSequentialDecomposition.cpp src/2DBlockCyclicDecomposition.cpp
+    src/cudaCommunicator.cpp 
+    src/logging.cpp src/matrixGeneration.cu src/cmatrix.cpp
+)
+
+target_link_libraries(cublasmpBenchmark ${MPI_LINK} ${OPENBLAS_LINK} ${CAL_LINK} ${CUBLASMP_LINK} ${CUDA_LINK} ${SCALAPACK_LINK})
 target_link_libraries(pblasGEMM ${MPI_LINK} ${OPENBLAS_LINK} ${SCALAPACK_LINK})
-target_link_libraries(cyclicDecomposition ${MPI_LINK})
+# target_link_libraries(cyclicDecomposition ${MPI_LINK})
+target_link_libraries(paraliaBenchmark ${MPI_LINK} ${PARALIA_LINK} ${OPENBLAS_LINK} ${NUMACTL_LINK} ${CUDA_LINK})
+target_link_libraries(mpiBenchmark ${MPI_LINK} ${PARALIA_LINK} ${OPENBLAS_LINK} ${NUMACTL_LINK} ${CUDA_LINK})

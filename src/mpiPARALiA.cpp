@@ -1,6 +1,4 @@
 #include "mpiBLAS_wrappers.hpp"
-#include "cudaCommunicator.hpp"
-
 
 double PARALiA_MPI_Dgemm(char TransA,  char TransB, long int M, long int N, long int K,
   double alpha, double* A, long int ldA, double* B, long int ldB, double beta, double* C,
@@ -16,34 +14,57 @@ double PARALiA_MPI_Dgemm(char TransA,  char TransB, long int M, long int N, long
     }
 
     /* Create a communicator only for processes that can have access to a GPU */
-    MPI_Comm gpuCommunicator = createGPUCommunicator();
-    MPI_Comm problemCommunicator = gpuCommunicator;
+    // MPI_Comm gpuCommunicator = createGPUCommunicator();
+    MPI_Comm problemCommunicator = MPI_COMM_WORLD;
 
+    int rank;
+    MPI_Comm_rank(problemCommunicator, &rank);
+
+    /* Create logfile */
+    FILE* logfile;
+    if (rank == 0) {
+        std::string machineName = "silver";
+        std::string filename = "DGEMM_execution_logs-" + machineName + "-PARALIA_Sequential.csv";
+        std::string header = "Algo,M,N,K,TotalNodes,TotalGPUs,DecompositionTime,ExecutionTime,GFlops";
+        logfile = createLogCsv(filename, header);
+    }
+    
     GEMM_BlockSequentialDecomposer Decomposer(M, N, K, problemCommunicator);
-
-    int rank = Decomposer.rank;
-
+    
     double *localA, *localB, *localC;
 
-    int localM = Decomposer.localM;
-    int localN = Decomposer.localN;
-    int localK = Decomposer.localK;
+    long long int localM = Decomposer.localM;
+    long long int localN = Decomposer.localN;
+    long long int localK = Decomposer.localK;
 
-    localA = (double*) malloc(localK * localM*sizeof(double));
-	localB = (double*) malloc(localN * localK*sizeof(double));
-	localC = (double*) malloc(localM * localN*sizeof(double));
+    long long int llda = localM;
+    long long int lldb = localK;
+    long long int lldc = localM;
 
+    localA = (double*) malloc(localK * localM * sizeof(double));
+	localB = (double*) malloc(localN * localK * sizeof(double));
+	localC = (double*) malloc(localM * localN * sizeof(double));
+
+    double decompositionStart = MPI_Wtime();
     Decomposer.scatterMatrices(A, B, C, localA, localB, localC);
+    double decompositionTime = MPI_Wtime() - decompositionStart;
 
-    /* PARALIA: Create ATC */
-    ATC_p predefControlValues = new ATC();
-    predefControlValues->cache_limit = -1;
-    predefControlValues->T = -1;
-    predefControlValues->active_unit_num = 1;
-    predefControlValues->active_unit_id_list[0] = 1;
+    for (int i = 0; i < 10; i++) {
+        double executionStart = MPI_Wtime();
+        PARALiADgemm('N', 'N', localM, localN, localK, alpha, localA, llda, localB, lldb, beta, localC, lldc);
+        double executionEnd = MPI_Wtime();
 
-    PARALiADgemmControled('N', 'N', localM, localN, localK, alpha, localA,
-     localK, localB, localN, beta, localC, localN, predefControlValues);
+        if (rank == 0) {
+            double executionTime = executionEnd-executionStart;
+            double gflops = (2 * M * N * K * 1e-9) / executionTime;
+            int totalGPUs = 3;
+            int numberOfNodes = 1;
+
+            char csvLine[150];
+            sprintf(csvLine, "%s,%lld,%lld,%d,%d,%lf,%lf,%lf\n", "PARALiA-Sequential", M, N, K, numberOfNodes, totalGPUs, decompositionTime, executionTime, gflops);
+            writeLineToFile(logfile, csvLine);
+        }
+    }
 
     /* Return C to main process */
     Decomposer.gatherResult(C, localC);

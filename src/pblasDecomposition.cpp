@@ -1,5 +1,4 @@
 #include "pblasDecomposition.hpp"
-#define DEBUG
 
 int numroc(int n, int nb, int iproc, int isrproc, int nprocs)
 {

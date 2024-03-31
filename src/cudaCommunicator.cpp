@@ -1,5 +1,39 @@
 #include "cudaCommunicator.hpp"
 
+void calculateProcessGrid(int *dRow, int *dCol , int deviceCount)
+{
+    int Px = std::sqrt(deviceCount);
+    int Py = Px;
+
+    /* If less than 4 devices */
+    if (Px == 0) {
+        Py = deviceCount;
+        Px = 1;
+    }
+    /* If more than 4 devices, find the most square decomposition */
+    int counter;
+    for (counter = Px; counter > 0; --counter) 
+        if (deviceCount % counter == 0) break;
+    
+    if (counter==0) {
+        Px = deviceCount;
+        Py = 1;
+    }
+    else {
+        Px = counter;
+        Py = deviceCount/counter;
+    }
+
+    *dRow = Py;
+    *dCol = Px;
+
+    #ifdef DEBUG
+        printf("dRow: %d - dCol: %d\n", *dRow, *dCol);
+    #endif
+
+    return;
+}
+
 void getLocalDevice(int* localRank, int* deviceCount, int* localDeviceID)
 {
     MPI_Comm localCommunicator;
@@ -56,9 +90,6 @@ MPI_Comm createGPUCommunicator()
 
     CUDA_CHECK(cudaGetDeviceCount(&localDeviceSize));
 
-    if (localDeviceSize > 2)
-        localDeviceSize = 1;
-
     int deviceGroupRanks[localDeviceSize];
     for (int i = 0; i < localDeviceSize; i++) {
         deviceGroupRanks[i] = i;
@@ -70,12 +101,13 @@ MPI_Comm createGPUCommunicator()
     MPI_Comm deviceCommunicator;
     MPI_Comm_create_group(localCommunicator, deviceGroup, 0, &deviceCommunicator);
 
-    int localDeviceSizeComm;
-    if (deviceCommunicator != MPI_COMM_NULL) {
-        MPI_Comm_rank(deviceCommunicator, &localDeviceRank);
-        MPI_Comm_size(deviceCommunicator, &localDeviceSizeComm);
-        printf("Rank: %d, Size: %d\n", localDeviceRank, localDeviceSize);
-    }
+    #ifdef DEBUG
+        if (deviceCommunicator != MPI_COMM_NULL) {
+            MPI_Comm_rank(deviceCommunicator, &localDeviceRank);
+            MPI_Comm_size(deviceCommunicator, &localDeviceSizeComm);
+            printf("Rank: %d, Size: %d\n", localDeviceRank, localDeviceSize);
+        }
+    #endif
 
     MPI_Comm_free(&localCommunicator);  
 

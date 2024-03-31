@@ -1,47 +1,11 @@
-#include "cuBLASMP_wrappers.hpp"
+#include "cuBLASMpWrapped.hpp"
 
-#include <assert.h>
-#include <math.h>
-#include <omp.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <time.h>
-
-#include <vector>
-#include <cublasmp.h>
-#include <validation.hpp>
-#include <cblas.h>
-#include <unistd.h>
-
-// #define VALIDATE
-
-/* Validation: Check testing.cpp validation */
-
-    /* CUBLASMP STEPS:
-        1. Find rank and size of world - DONE
-        2. Find ID of localGPU - DONE
-        3. Create CAL communicator - DONE
-        4. Create stream for localGPU - DONE
-        5. Create handle for CUBLASMP - DONE
-        6. Initialize pointers for both matrices: 
-            6a. global DONE
-            6b. local DONe
-            6c. device DONe
-        7. Call cublasMpNumroc to find size to allocate on Local matrix DONE
-        8. Copy data from host to device DONE
-        9. Create grid with cublasMpGridCreate DONE
-        10. Create Matrix descriptors DONE
-        11. Allocate necessary memory using... DONE
-        12. Sync processes DONE
-        13. call cublasMpGemm DONE
-        14. Destroy everything DONE
-*/
+// #define DEBUG
 
 void cuBLASMpDgemmWrap(char TransA,  char TransB, long int M, long int N, long int K,
   double alpha, double* A, long int ldA, double* B, long int ldB, double beta, double* C,
-  long int ldC, int Mb, int Nb, int dRow, int dCol)
+  long int ldC, long int Mb, long int Nb, int dRow, int dCol)
 {
-    char orientation = 'r';
     int ia = 1, ja = 1, ib = 1, jb = 1, ic = 1, jc = 1;
 
     /* 1. Find rank and size of World */
@@ -49,15 +13,32 @@ void cuBLASMpDgemmWrap(char TransA,  char TransB, long int M, long int N, long i
     MPI_Comm_size(MPI_COMM_WORLD, &size);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
 
-    /* 2. Find ID of localGPU */
-    int localDeviceID = rank % (dRow*dCol);
+    /* Setup logfile */
+    FILE* logfile;
+    if (rank == 0) {
+        std::string machineName = "silver1";
+        std::string filename = "DGEMM_execution_logs-" + machineName + "-cuBLASMp.csv";
+        std::string header = "Algo,M,N,K,TileRows,TileColumns,dRow,dCol,TotalNodes,TotalGPUs,DecompositionTime,ExecutionTime,GFlops";
+        logfile = createLogCsv(filename, header);
+    }
+
+    #ifdef DEBUG
+        int deviceSize = 0;
+        CUDA_CHECK(cudaGetDeviceCount(&deviceSize));
+        printf("Rank: %d, Device Count: %d, World Size: %d", rank, deviceSize, size);
+    #endif
+
+    /* 2. Find ID of localGPU - On Meluxina, each task gets 1 gpu, so each deviceID is 0 */
+    int localDeviceID = rank % 2;
     CUDA_CHECK(cudaSetDevice(localDeviceID));
 
-    int localRow = (orientation == 'c' ? rank % dRow : rank / dCol);
-    int localCol = (orientation == 'c' ? rank / dRow : rank % dCol);
+    int localRow = rank / dCol;
+    int localCol = rank % dCol;
 
     /* 3. Create CAL Communicator */
+    double communicatorStart = MPI_Wtime();
     cal_comm_t calCommunicator = createCalCommunicator(rank, size, localDeviceID);
+    double communicatorEnd = MPI_Wtime();
 
     /* 4. Create Stream for Local GPU */
     cudaStream_t stream = NULL;
@@ -74,10 +55,14 @@ void cuBLASMpDgemmWrap(char TransA,  char TransB, long int M, long int N, long i
     size_t workspaceInBytesOnDevice = 0;
     size_t workspaceInBytesOnHost = 0;
 
+    double decompositionStart = MPI_Wtime();
+
     /* Decompose Matrices */    
     pblasDecomposer decomposerA(M, K, Mb, Nb, dRow, dCol, A, MPI_COMM_WORLD);
     pblasDecomposer decomposerB(K, N, Mb, Nb, dRow, dCol, B, MPI_COMM_WORLD);
     pblasDecomposer decomposerC(M, N, Mb, Nb, dRow, dCol, C, MPI_COMM_WORLD);
+
+    double decompositionEnd = MPI_Wtime();
 
     const int64_t llda = decomposerA.localRows;
     const int64_t loc_n_a = decomposerA.localColumns;
@@ -93,6 +78,8 @@ void cuBLASMpDgemmWrap(char TransA,  char TransB, long int M, long int N, long i
     localB = decomposerB.localMatrix;
     localC = decomposerC.localMatrix;
 
+    double memcpyStart = MPI_Wtime();
+
     CUDA_CHECK(cudaMallocAsync(&d_A, llda * loc_n_a *sizeof(double), stream));
     CUDA_CHECK(cudaMallocAsync(&d_B, lldb * loc_n_b *sizeof(double), stream));
     CUDA_CHECK(cudaMallocAsync(&d_C, lldc * loc_n_c *sizeof(double), stream));
@@ -100,6 +87,8 @@ void cuBLASMpDgemmWrap(char TransA,  char TransB, long int M, long int N, long i
     CUDA_CHECK(cudaMemcpyAsync(d_A, localA, llda * loc_n_a * sizeof(double), cudaMemcpyHostToDevice, stream));
     CUDA_CHECK(cudaMemcpyAsync(d_B, localB, lldb * loc_n_b * sizeof(double), cudaMemcpyHostToDevice, stream));
     CUDA_CHECK(cudaMemcpyAsync(d_C, localC, lldc * loc_n_c * sizeof(double), cudaMemcpyHostToDevice, stream));
+
+    double memcpyEnd = MPI_Wtime();
 
     /* 9. Create Grid */
     cublasMpGrid_t grid = NULL;
@@ -151,45 +140,60 @@ void cuBLASMpDgemmWrap(char TransA,  char TransB, long int M, long int N, long i
     CAL_CHECK(cal_stream_sync(calCommunicator, stream));
     CAL_CHECK(cal_comm_barrier(calCommunicator, stream));
 
-    const double begin = MPI_Wtime();
-    CUBLAS_CHECK(cublasMpGemm(
-        handle,
-        CUBLAS_OP_N,
-        CUBLAS_OP_N,
-        M,
-        N,
-        K,
-        &alpha,
-        d_A,
-        ia,
-        ja,
-        descA,
-        d_B,
-        ib,
-        jb,
-        descB,
-        &beta,
-        d_C,
-        ic,
-        jc,
-        descC,
-        CUDA_R_64F,
-        d_work,
-        workspaceInBytesOnDevice,
-        h_work.data(),
-        workspaceInBytesOnHost));
+    for (int i = 0; i < 10; i++) {
+        double executionStart = MPI_Wtime();
+        CUBLAS_CHECK(cublasMpGemm(
+            handle,
+            CUBLAS_OP_N,
+            CUBLAS_OP_N,
+            M,
+            N,
+            K,
+            &alpha,
+            d_A,
+            ia,
+            ja,
+            descA,
+            d_B,
+            ib,
+            jb,
+            descB,
+            &beta,
+            d_C,
+            ic,
+            jc,
+            descC,
+            CUDA_R_64F,
+            d_work,
+            workspaceInBytesOnDevice,
+            h_work.data(),
+            workspaceInBytesOnHost));
+        double executionEnd = MPI_Wtime();
+
+        CAL_CHECK(cal_stream_sync(calCommunicator, stream));
+        CAL_CHECK(cal_comm_barrier(calCommunicator, stream));
+
+        if (rank == 0) {
+           // printf("Communicator Time: %lf, Decomposition Time: %lf Memcpy Time: %lf\n", communicatorEnd-communicatorStart, decompositionEnd-decompositionStart, memcpyEnd-memcpyStart);
+            double executionTime = executionEnd - executionStart;
+            double decompositionTime = decompositionEnd - decompositionStart;
+            double gflops = (2 * M * N * K * 1e-9) / executionTime;
+            int totalGPUs = size;
+            int numberOfNodes = 1;
+
+            char csvLine[100];
+            sprintf(csvLine, "%s,%ld,%ld,%ld,%ld,%ld,%d,%d,%d,%d,%lf,%lf,%lf\n", "cuBLASMp", M, N, K, Mb, Nb, dRow, dCol, numberOfNodes, totalGPUs, decompositionTime, executionTime, gflops);
+            writeLineToFile(logfile, csvLine);
+        }
+    }
 
     CUDA_CHECK(cudaMemcpyAsync(localC, d_C, lldc * loc_n_c * sizeof(double), cudaMemcpyDeviceToHost, stream));
 
     CAL_CHECK(cal_stream_sync(calCommunicator, stream));
     CAL_CHECK(cal_comm_barrier(calCommunicator, stream));
 
+    /* Gather results */
     decomposerC.gatherMatrix();
-
-    const double end = MPI_Wtime();
-
-    if (rank == 0)
-        printf("Rank: %d Duration: %lf GFlops: %lf\n", rank,  end - begin, (2 * M * N * K * 1e-9) / (end - begin));
 
     /* 14. Destroy Everything */
     CUBLAS_CHECK(cublasMpMatrixDescriptorDestroy(handle, descA));
@@ -211,71 +215,9 @@ void cuBLASMpDgemmWrap(char TransA,  char TransB, long int M, long int N, long i
 
     CUDA_CHECK(cudaStreamDestroy(stream));
 
-    MPI_Barrier(MPI_COMM_WORLD);
+    if (rank == 0) {
+        fclose(logfile);
+    }
+
+    return;
 }
-
-int main(int argc, char* argv[])
-{
-    MPI_Init(&argc, &argv);
-
-    int rank;
-    MPI_Comm_rank(MPI_COMM_WORLD, &rank);
-
-    int M, N, K;
-    int lda, ldb, ldc;
-    M = 8192*2;
-    N = 8192*2;
-    K = 8192*2;
-
-    double alpha, beta;
-    alpha = 0.213;
-    beta = 1.329;
-
-    double *A, *B, *C, *referenceC;
-
-    if (rank == 0) {
-        A = (double*) malloc(sizeof(double) * M * K);
-        B = (double*) malloc(sizeof(double) * N * K);
-        C = (double*) malloc(sizeof(double) * M * N);
-
-        generateMatrixColumnMajor(A, M, K);
-        generateMatrixColumnMajor(B, N, K);
-        generateMatrixColumnMajor(C, M, N);
-
-        referenceC = copyMatrix(C, M, N);
-    }
-
-    lda = M;
-    ldb = K;
-    ldc = M;
-
-    int Mb, Nb;
-    int dRow, dCol;
-
-    Mb = 512;
-    Nb = 512;
-
-    dRow = 2;
-    dCol = 1;
-
-    MPI_Barrier(MPI_COMM_WORLD);
-
-    double t1 = MPI_Wtime();
-
-    cuBLASMpDgemmWrap('c', 'c', M, N, K, alpha, A, lda, B, ldb, beta, C, ldc, Mb, Nb, dRow, dCol);
-
-    double t2 = MPI_Wtime();
-
-    printf("Rank: %d Elapsed Time: %lf\n", rank, t2 - t1);
-
-    if (rank == 0) {
-        #ifdef VALIDATE
-            cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, M, N, K, alpha, A, lda, B, ldb, beta, referenceC, ldc);
-            Dtest_equality(C, referenceC, M*N);
-        #endif
-    }
-
-    MPI_Finalize();
-
-    return 0;
-};

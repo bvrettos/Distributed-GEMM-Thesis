@@ -27,6 +27,7 @@ int main(int argc, char* argv[])
 
     double *A, *B, *C;
     double *referenceC;
+    
     if (rank == 0) {
         /* Generate matrices */
         A = (double*) malloc(sizeof(double)*M*K);
@@ -36,11 +37,6 @@ int main(int argc, char* argv[])
         generateMatrix(A, M, K);
         generateMatrix(B, K, N);
         generateMatrix(C, M, N);
-    #ifdef DEBUG
-        printMatrix(A, M, K, rank);
-        printMatrix(B, N, K, rank);
-        printMatrix(C, M, N, rank);
-    #endif
     
     #ifdef VALIDATE
         referenceC = copyMatrix(C, M, N);
@@ -51,11 +47,11 @@ int main(int argc, char* argv[])
     int blockColumns = 1024;
     double t1, t2;
     double computationTime;
+    
     t1 = MPI_Wtime();
-    // computationTime = MPI_Dgemm_Sequential('N', 'N', M, N, K, alpha, A, K, B, N, beta, C, N);
 
     computationTime = MPI_Dgemm_Cyclic('N', 'N', M, N, K, alpha, A, K, B, N, beta, C, N, blockRows, blockColumns);
-    // PARALiA_MPI_Dgemm('N', 'N', M, N, K, alpha, A, K, B, N, beta, C, N);
+
     t2 = MPI_Wtime();
 
     if (rank == 0){
