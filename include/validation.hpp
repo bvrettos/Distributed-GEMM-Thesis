@@ -5,7 +5,7 @@
 #include <cstdio>
 
 template <typename T>
-double abs(T x);
+T abs(T x);
 
 template <typename T>
 inline T Derror(T a, T b);

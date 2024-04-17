@@ -1,7 +1,6 @@
 #include "cuBLASMpWrapped.hpp"
 
 // #define DEBUG
-
 void cuBLASMpDgemmWrap(char TransA,  char TransB, long int M, long int N, long int K,
   double alpha, double* A, long int ldA, double* B, long int ldB, double beta, double* C,
   long int ldC, long int Mb, long int Nb, int dRow, int dCol)
@@ -16,7 +15,7 @@ void cuBLASMpDgemmWrap(char TransA,  char TransB, long int M, long int N, long i
     /* Setup logfile */
     FILE* logfile;
     if (rank == 0) {
-        std::string machineName = "silver1";
+        std::string machineName = MACHINE_NAME;
         std::string filename = "DGEMM_execution_logs-" + machineName + "-cuBLASMp.csv";
         std::string header = "Algo,M,N,K,TileRows,TileColumns,dRow,dCol,TotalNodes,TotalGPUs,DecompositionTime,ExecutionTime,GFlops";
         logfile = createLogCsv(filename, header);
@@ -140,7 +139,7 @@ void cuBLASMpDgemmWrap(char TransA,  char TransB, long int M, long int N, long i
     CAL_CHECK(cal_stream_sync(calCommunicator, stream));
     CAL_CHECK(cal_comm_barrier(calCommunicator, stream));
 
-    for (int i = 0; i < 10; i++) {
+    for (int i = 0; i < 1; i++) {
         double executionStart = MPI_Wtime();
         CUBLAS_CHECK(cublasMpGemm(
             handle,

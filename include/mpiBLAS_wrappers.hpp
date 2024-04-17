@@ -8,7 +8,7 @@
 #include <cblas.h>
 #include <logging.hpp>
 
-double PARALiA_MPI_Dgemm(char TransA,  char TransB, long int M, long int N, long int K,
+double PARALiA_MPI_Dgemm(char TransA,  char TransB, const long long M, const long long N, const long long K,
   double alpha, double* A, long int ldA, double* B, long int ldB, double beta, double* C,
   long int ldC);
 

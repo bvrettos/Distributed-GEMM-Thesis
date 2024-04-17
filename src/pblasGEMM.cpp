@@ -78,9 +78,9 @@ int main(int argc, char* argv[])
         B = (double*) malloc(sizeof(double) * N * K);
         C = (double*) malloc(sizeof(double) * M * N);
 
-        generateMatrixColumnMajor(A, M, K);
-        generateMatrixColumnMajor(B, N, K);
-        generateMatrixColumnMajor(C, M, N);
+        generateMatrix(A, M, K);
+        generateMatrix(B, N, K);
+        generateMatrix(C, M, N);
 
         referenceC = copyMatrix(C, M, N);
     }
@@ -94,10 +94,8 @@ int main(int argc, char* argv[])
     pblasDgemm("N", "N", M, N, K, alpha, A, lda, B, ldb, beta, C, ldc, 32, 32, 2 ,2);
     double t2 = MPI_Wtime();
 
-    if (rank == 0)
-        printf("Elapsed Time: %lf \n",t2-t1);
-
     if (rank == 0) {
+        printf("Elapsed Time: %lf \n",t2-t1);
         #ifdef VALIDATE
             cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, M, N, K, alpha, A, lda, B, ldb, beta, referenceC, ldc);
             Dtest_equality(C, referenceC, M*N);

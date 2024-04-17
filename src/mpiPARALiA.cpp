@@ -1,6 +1,6 @@
 #include "mpiBLAS_wrappers.hpp"
 
-double PARALiA_MPI_Dgemm(char TransA,  char TransB, long int M, long int N, long int K,
+double PARALiA_MPI_Dgemm(char TransA,  char TransB, const long long M, const long long N, const long long K,
   double alpha, double* A, long int ldA, double* B, long int ldB, double beta, double* C,
   long int ldC)
 {
@@ -23,7 +23,7 @@ double PARALiA_MPI_Dgemm(char TransA,  char TransB, long int M, long int N, long
     /* Create logfile */
     FILE* logfile;
     if (rank == 0) {
-        std::string machineName = "silver";
+        std::string machineName = MACHINE_NAME;
         std::string filename = "DGEMM_execution_logs-" + machineName + "-PARALIA_Sequential.csv";
         std::string header = "Algo,M,N,K,TotalNodes,TotalGPUs,DecompositionTime,ExecutionTime,GFlops";
         logfile = createLogCsv(filename, header);
@@ -49,7 +49,7 @@ double PARALiA_MPI_Dgemm(char TransA,  char TransB, long int M, long int N, long
     Decomposer.scatterMatrices(A, B, C, localA, localB, localC);
     double decompositionTime = MPI_Wtime() - decompositionStart;
 
-    for (int i = 0; i < 10; i++) {
+    for (int i = 0; i < 1; i++) {
         double executionStart = MPI_Wtime();
         PARALiADgemm('N', 'N', localM, localN, localK, alpha, localA, llda, localB, lldb, beta, localC, lldc);
         double executionEnd = MPI_Wtime();
@@ -57,11 +57,11 @@ double PARALiA_MPI_Dgemm(char TransA,  char TransB, long int M, long int N, long
         if (rank == 0) {
             double executionTime = executionEnd-executionStart;
             double gflops = (2 * M * N * K * 1e-9) / executionTime;
-            int totalGPUs = 3;
+            int totalGPUs = Decomposer.communicatorSize;
             int numberOfNodes = 1;
 
             char csvLine[150];
-            sprintf(csvLine, "%s,%lld,%lld,%d,%d,%lf,%lf,%lf\n", "PARALiA-Sequential", M, N, K, numberOfNodes, totalGPUs, decompositionTime, executionTime, gflops);
+            sprintf(csvLine, "%s,%lld,%lld,%lld,%d,%d,%lf,%lf,%lf\n", "PARALiA-Sequential", M, N, K, numberOfNodes, totalGPUs, decompositionTime, executionTime, gflops);
             writeLineToFile(logfile, csvLine);
         }
     }

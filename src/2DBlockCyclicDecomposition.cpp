@@ -1,9 +1,7 @@
 #include <2DBlockCyclicDecomposition.hpp>
 
-BlockCyclicMatrixDecomposer::BlockCyclicMatrixDecomposer(int rows, int columns, int blockRows, int blockColumns, MPI_Comm communicator) : M(rows), N(columns), blockRows(blockRows), blockColumns(blockColumns)
+BlockCyclicMatrixDecomposer::BlockCyclicMatrixDecomposer(int rows, int columns, int blockRows, int blockColumns, MPI_Comm communicator) : M(rows), N(columns), blockRows(blockRows), blockColumns(blockColumns), communicator(communicator)
 {
-    this->communicator = communicator;
-
     rowDiv = rows/blockRows;
     rowMod = rows%blockRows;
 

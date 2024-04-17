@@ -1,7 +1,5 @@
 #include "cuBLASMpWrapped.hpp"
 
-// #define VALIDATE
-
 int main(int argc, char* argv[])
 {
     MPI_Init(&argc, &argv);
@@ -15,10 +13,10 @@ int main(int argc, char* argv[])
         printf("Rank: %d Size: %d\n", rank, size);
     #endif
 
-    /* ./cublasmpTest M N K Mb Nb */
     long int M, N, K, Mb, Nb;
-    if (argc < 6) {
-        std::cerr << "Usage: ./cublasmpTest M N K Mb Nb" << std::endl;
+    double alpha, beta;
+    if (argc < 8) {
+        std::cerr << "Usage: ./cublasmpTest M N K Mb Nb alpha beta" << std::endl;
         exit(1);
     }
     
@@ -27,12 +25,10 @@ int main(int argc, char* argv[])
     K = atoi(argv[3]);
     Mb = atoi(argv[4]);
     Nb = atoi(argv[5]);
+    alpha = atof(argv[6]);
+    beta = atof(argv[7]);
 
     long int lda, ldb, ldc;
-
-    double alpha, beta;
-    alpha = 0.213;
-    beta = 1.329;
 
     double *A, *B, *C, *referenceC;
 
@@ -41,15 +37,14 @@ int main(int argc, char* argv[])
         A = (double*) malloc(sizeof(double) * M * K);
         B = (double*) malloc(sizeof(double) * N * K);
         C = (double*) malloc(sizeof(double) * M * N);
-
-        generateMatrixGPU(A, M, K);
-        generateMatrixGPU(B, N, K);
-        generateMatrixGPU(C, M, N);
-
+        MatrixInit(A, M, K, 0);
+        MatrixInit(B, K, N, 0);
+        MatrixInit(C, M, N, 0);    
         #ifdef VALIDATE
             referenceC = copyMatrix(C, M, N);
         #endif
     }
+
     double generationEnd = MPI_Wtime();
 
     if (rank == 0)
@@ -75,7 +70,7 @@ int main(int argc, char* argv[])
         printf("Rank: %d Elapsed Time: %lf\n", rank, t2 - t1);
 
         #ifdef VALIDATE
-            for (int i = 0; i < 10; i++)
+            for (int i = 0; i < 1; i++)
                 cblas_dgemm(CblasColMajor, CblasNoTrans, CblasNoTrans, M, N, K, alpha, A, lda, B, ldb, beta, referenceC, ldc);
             Dtest_equality(C, referenceC, M*N);
         #endif

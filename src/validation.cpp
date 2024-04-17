@@ -1,7 +1,7 @@
 #include "validation.hpp"
 
 template <typename T>
-double abs(T x) {
+T abs(T x) {
     if (x < 0) return -x;
     else return x;
 }
@@ -9,7 +9,7 @@ double abs(T x) {
 template <typename T>
 inline T Terror(T a, T b) {
     if (a == 0) return abs<T>(a - b);
-    return abs<T>(a-b)/a;
+    return abs(a-b)/a;
 }
 
 template <typename T>
@@ -17,7 +17,7 @@ long int vectorDifference(T* a, T* b, long long size, double eps) {
     int failed = 0;
 
     for (long long i = 0; i < size; i++) {
-        if (Terror<T>(a[i], b[i]) > eps) {
+        if (Terror(a[i], b[i]) > eps) {
             failed++;
         }
     }
@@ -79,3 +79,6 @@ double dabs(double x) {
 	if (x < 0) return -x;
 	else return x;
 }
+
+template double abs<double>(double x);
+template float abs<float>(float x);

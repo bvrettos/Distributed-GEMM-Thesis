@@ -14,6 +14,8 @@ set (CUDA_LD ${CUDA_PREFIX}/lib64) # or /lib depending on system
 set (CUDA_LINK "-L${CUDA_LD} -lcublas -lcurand -lcuda -lcudart")
 set (CUDA_INCLUDE_DIRS ${CUDA_PREFIX}/include ${CUDA_PREFIX}/samples/common/inc)
 set (CMAKE_CUDA_COMPILER ${CUDA_PREFIX}/bin/nvcc)
+set(CMAKE_C_COMPILER ${CMAKE_CUDA_COMPILER})
+set(CMAKE_CXX_COMPILER ${CMAKE_CUDA_COMPILER})
 
 # Set MPI Stuff
 set (MPI_PREFIX $ENV{OMPI_PATH})
@@ -25,9 +27,6 @@ set (MPI_LINK "-lmpi -L${MPI_LD}")
 set (PARALIA_PREFIX "/home/users/vvrettos/PARALiA-GEMMex/build/silver1_2V100-install")
 set (PARALIA_LINK "-L${PARALIA_PREFIX}/lib -lparalia -lautotuner -lcaching -lchl_grid_amalgamation -lchl_smart_wrappers")
 set (PARALIA_INCLUDE_DIRS ${PARALIA_PREFIX}/include)
-
-set(CMAKE_C_COMPILER ${CMAKE_CUDA_COMPILER})
-set(CMAKE_CXX_COMPILER ${CMAKE_CUDA_COMPILER})
 
 # Set OpenBLAS Stuff
 set (OPENBLAS_PREFIX $ENV{OPENBLAS_PATH})
@@ -56,9 +55,16 @@ set (SCALAPACK_PREFIX $ENV{SCALAPACK_PATH})
 set (SCALAPACK_INCLUDE_DIRS ${SCALAPACK_PREFIX}/include)
 set (SCALAPACK_LINK "-L${SCALAPACK_PREFIX}/lib -lscalapack")
 
+################################################################################################
+#---------------------------Settings and Tunable Parameters------------------------------------#
+################################################################################################
+
 add_definitions(-DMAX_BACKEND_L=8)
 add_definitions(-DREDUCE_WORKERS_PERDEV=10)
 add_definitions(-DPROBLEM_MD_CACHE=100) # Only relevant for "PROBLEMS" reuse level
+add_definitions(-DMACHINE_NAME="silver1")
+# add_definitions(-DDEBUG)
+# add_definitions(-DVALIDATE)
 
 include_directories(
     ${CUDA_INCLUDE_DIRS}
@@ -75,7 +81,7 @@ include_directories(
 add_executable(cublasmpBenchmark
     src/cuBLASMpBenchmark.cpp src/cuBLASMpWrapped.cpp 
     src/pblasDecomposition.cpp src/cudaCommunicator.cpp src/calSetup.cpp
-    src/validation.cpp src/cmatrix.cpp src/logging.cpp src/matrixGeneration.cu
+    src/validation.cpp src/cmatrix.cpp src/logging.cpp 
 )
 
 add_executable(pblasGEMM
@@ -91,18 +97,18 @@ add_executable(pblasGEMM
 add_executable(paraliaBenchmark
     src/paraliaBenchmark.cpp src/mpiPARALiA.cpp
     src/2DBlockSequentialDecomposition.cpp src/cudaCommunicator.cpp 
-    src/logging.cpp src/matrixGeneration.cu src/cmatrix.cpp
+    src/logging.cpp src/cmatrix.cpp
 )
 
 add_executable(mpiBenchmark
     src/mpiBenchmark.cpp src/mpiBLAS.cpp
     src/2DBlockSequentialDecomposition.cpp src/2DBlockCyclicDecomposition.cpp
     src/cudaCommunicator.cpp 
-    src/logging.cpp src/matrixGeneration.cu src/cmatrix.cpp
+    src/logging.cpp src/cmatrix.cpp
 )
 
 target_link_libraries(cublasmpBenchmark ${MPI_LINK} ${OPENBLAS_LINK} ${CAL_LINK} ${CUBLASMP_LINK} ${CUDA_LINK} ${SCALAPACK_LINK})
-target_link_libraries(pblasGEMM ${MPI_LINK} ${OPENBLAS_LINK} ${SCALAPACK_LINK})
+target_link_libraries(pblasGEMM ${MPI_LINK} ${OPENBLAS_LINK} ${SCALAPACK_LINK} ${CUDA_LINK})
 # target_link_libraries(cyclicDecomposition ${MPI_LINK})
 target_link_libraries(paraliaBenchmark ${MPI_LINK} ${PARALIA_LINK} ${OPENBLAS_LINK} ${NUMACTL_LINK} ${CUDA_LINK})
 target_link_libraries(mpiBenchmark ${MPI_LINK} ${PARALIA_LINK} ${OPENBLAS_LINK} ${NUMACTL_LINK} ${CUDA_LINK})
