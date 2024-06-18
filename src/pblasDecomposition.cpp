@@ -34,7 +34,10 @@ pblasDecomposer::pblasDecomposer(int M, int N, int Mb, int Nb, int dRow, int dCo
     rootRow = 0;
     rootCol = 0;
 
-    scatterMatrix();
+    localRows = numroc(M, Mb, procRow, rootCol, dRow);
+    localColumns = numroc(N, Nb, procCol, rootRow, dCol);
+
+    // scatterMatrix();
 }
 
 void pblasDecomposer::createCblacsContext()
@@ -58,8 +61,6 @@ void pblasDecomposer::createCblacsContext()
 
 void pblasDecomposer::allocateLocalMatrix()
 {
-    localRows = numroc(M, Mb, procRow, rootCol, dRow);
-    localColumns = numroc(N, Nb, procCol, rootRow, dCol);
 
     localMatrix = (double* ) malloc(sizeof(double) * localRows * localColumns);
 
@@ -159,6 +160,6 @@ void pblasDecomposer::gatherMatrix()
 
 pblasDecomposer::~pblasDecomposer()
 {
-    free(localMatrix);
-    Cblacs_gridexit(cblacsContext);
+    // free(localMatrix);
+    // Cblacs_gridexit(cblacsContext);
 }

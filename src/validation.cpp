@@ -21,14 +21,37 @@ long int vectorDifference(T* a, T* b, long long size, double eps) {
             failed++;
         }
     }
-
     return failed;
 }
 
 template <typename T>
-short testEquality()
+short testEquality(T* referenceArray, T* array, long long size)
 {
-
+  long int acc = 8, failed;
+  double eps = 1e-8;
+  failed = vectorDifference(referenceArray, array, size, eps);
+  while (eps > DBL_MIN && !failed && acc < 30) {
+    eps *= 0.1;
+    acc++;
+    failed = vectorDifference(referenceArray, array, size, eps);
+  }
+  if (8==acc) {
+  	fprintf(stderr, "Test failed %zu times\n", failed);
+  	int ctr = 0;
+    long long itt = 0;
+  	while (ctr < 10 & itt < size){
+  		if (Terror(referenceArray[itt], array[itt]) > eps){
+  			fprintf(stderr, "Baseline vs Tested(adr = %p, itt = %lld): %.15lf vs %.15lf\n", &array[itt], itt, referenceArray[itt], array[itt]);
+  			ctr++;
+  		}
+  		itt++;
+  	}
+  return 0;
+  }
+  else
+    fprintf(stderr, "Test passed(Accuracy= %zu digits, %zu/%lld breaking for %zu)\n\n",
+            acc, failed, size, acc + 1);
+  return (short) acc;
 }
 
 short Dtest_equality(double* C_comp, double* C, long long size) {

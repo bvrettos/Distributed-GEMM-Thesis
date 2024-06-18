@@ -9,9 +9,9 @@ set(CMAKE_CUDA_STANDARD 14)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
 
 # Set CUDA Stuff
-set (CUDA_PREFIX "/usr/local/cuda-12.1")
+set (CUDA_PREFIX $ENV{CUDA_PATH})
 set (CUDA_LD ${CUDA_PREFIX}/lib64) # or /lib depending on system
-set (CUDA_LINK "-L${CUDA_LD} -lcublas -lcurand -lcuda -lcudart")
+set (CUDA_LINK "-L${CUDA_LD} -lcublas -lcurand -lcuda -lcudart -lcusolver -lrt")
 set (CUDA_INCLUDE_DIRS ${CUDA_PREFIX}/include ${CUDA_PREFIX}/samples/common/inc)
 set (CMAKE_CUDA_COMPILER ${CUDA_PREFIX}/bin/nvcc)
 set(CMAKE_C_COMPILER ${CMAKE_CUDA_COMPILER})
@@ -24,7 +24,7 @@ set (MPI_LD ${MPI_PREFIX}/lib)
 set (MPI_LINK "-lmpi -L${MPI_LD}")
 
 # Set PARALiA Stuff
-set (PARALIA_PREFIX "/home/users/vvrettos/PARALiA-GEMMex/build/silver1_2V100-install")
+set (PARALIA_PREFIX $ENV{PARALIA_PATH})
 set (PARALIA_LINK "-L${PARALIA_PREFIX}/lib -lparalia -lautotuner -lcaching -lchl_grid_amalgamation -lchl_smart_wrappers")
 set (PARALIA_INCLUDE_DIRS ${PARALIA_PREFIX}/include)
 
@@ -55,16 +55,29 @@ set (SCALAPACK_PREFIX $ENV{SCALAPACK_PATH})
 set (SCALAPACK_INCLUDE_DIRS ${SCALAPACK_PREFIX}/include)
 set (SCALAPACK_LINK "-L${SCALAPACK_PREFIX}/lib -lscalapack")
 
+# Set SLATE Stuff
+set (SLATE_PREFIX $ENV{SLATE_PATH})
+set (SLATE_INCLUDE_DIRS ${SLATE_PREFIX}/include)
+set (SLATE_LINK "-L${SLATE_PREFIX}/lib64 -lslate -lomp -llapackpp -lslate_lapack_api -lblaspp")
+
+# Set COSMA Stuff
+set (COSMA_PREFIX $ENV{COSMA_PATH})
+set (COSMA_INCLUDE_DIRS ${COSMA_PREFIX}/include)
+set (COSMA_LINK "-L${COSMA_PREFIX}/lib64 -lTiled-MM -lcosma -lcosta -lgomp")
+
+set (NCCL_PREFIX $ENV{NCCL_PATH})
+set (NCCL_INCLUDE_DIRS ${NCCL_PREFIX}/include)
+set (NCCL_LINK "-L{NCCL_PREFIX}/lib -lnccl")
+
 ################################################################################################
 #---------------------------Settings and Tunable Parameters------------------------------------#
 ################################################################################################
-
-add_definitions(-DMAX_BACKEND_L=8)
+set(MAX_BACKEND_L 8)
+add_definitions(-DMAX_BACKEND_L_IN=${MAX_BACKEND_L})
+add_definitions(-DDTYPE_NUM=3)
 add_definitions(-DREDUCE_WORKERS_PERDEV=10)
 add_definitions(-DPROBLEM_MD_CACHE=100) # Only relevant for "PROBLEMS" reuse level
-add_definitions(-DMACHINE_NAME="silver1")
-# add_definitions(-DDEBUG)
-# add_definitions(-DVALIDATE)
+add_definitions(-DMACHINE_NAME="meluxina")
 
 include_directories(
     ${CUDA_INCLUDE_DIRS}
@@ -75,40 +88,91 @@ include_directories(
     ${CAL_INCLUDE_DIRS}
     ${NUMACTL_INCLUDE_DIRS}
     ${SCALAPACK_INCLUDE_DIRS}
+    ${SLATE_INCLUDE_DIRS}
+    ${COSMA_INCLUDE_DIRS}
     include
-)
-
-add_executable(cublasmpBenchmark
-    src/cuBLASMpBenchmark.cpp src/cuBLASMpWrapped.cpp 
-    src/pblasDecomposition.cpp src/cudaCommunicator.cpp src/calSetup.cpp
-    src/validation.cpp src/cmatrix.cpp src/logging.cpp 
 )
 
 add_executable(pblasGEMM
     src/pblasGEMM.cpp src/pblasDecomposition.cpp
-    src/cmatrix.cpp src/validation.cpp
+    src/cmatrix.cpp src/validation.cpp src/cudaCommunicator.cpp src/generalUtilities.cpp
 )
 
-# add_executable(cyclicDecomposition
-#     src/2DBlockCyclicDecomposition.cpp 
-#     src/cmatrix.cpp
+# # add_executable(cyclicDecomposition
+# #     src/2DBlockCyclicDecomposition.cpp 
+# #     src/cmatrix.cpp
+# # )
+
+# add_executable(paraliaBenchmark
+#     src/paraliaBenchmark.cpp src/mpiPARALiA.cpp
+#     src/2DBlockSequentialDecomposition.cpp src/cudaCommunicator.cpp 
+#     src/logging.cpp src/cmatrix.cpp
 # )
 
-add_executable(paraliaBenchmark
-    src/paraliaBenchmark.cpp src/mpiPARALiA.cpp
-    src/2DBlockSequentialDecomposition.cpp src/cudaCommunicator.cpp 
-    src/logging.cpp src/cmatrix.cpp
+# add_executable(mpiBenchmark
+#     src/mpiBenchmark.cpp src/mpiBLAS.cpp
+#     src/2DBlockSequentialDecomposition.cpp src/2DBlockCyclicDecomposition.cpp
+#     src/cudaCommunicator.cpp 
+#     src/logging.cpp src/cmatrix.cpp
+# )
+
+target_link_libraries(pblasGEMM ${MPI_LINK} ${OPENBLAS_LINK} ${SCALAPACK_LINK} ${CUDA_LINK})
+# target_link_libraries(cyclicDecomposition ${MPI_LINK})
+# target_link_libraries(paraliaBenchmark ${MPI_LINK} ${PARALIA_LINK} ${OPENBLAS_LINK} ${NUMACTL_LINK} ${CUDA_LINK})
+# target_link_libraries(mpiBenchmark ${MPI_LINK} ${PARALIA_LINK} ${OPENBLAS_LINK} ${NUMACTL_LINK} ${CUDA_LINK})
+
+
+#######################################################################################
+#--------------------------- PARALiA Executables ------------------------------------#
+#######################################################################################
+
+add_executable(singleNodeParaliaBenchmark
+    src/singleNodeParaliaBenchmark.cpp src/paraliaWrappers.cpp src/cmatrix.cpp src/logging.cpp
+    src/generalUtilities.cpp
 )
 
-add_executable(mpiBenchmark
-    src/mpiBenchmark.cpp src/mpiBLAS.cpp
-    src/2DBlockSequentialDecomposition.cpp src/2DBlockCyclicDecomposition.cpp
-    src/cudaCommunicator.cpp 
-    src/logging.cpp src/cmatrix.cpp
+target_link_libraries(singleNodeParaliaBenchmark ${PARALIA_LINK} ${CUDA_LINK} ${NUMACTL_LINK})
+
+
+#######################################################################################
+#--------------------------- cuBLASMp Executables ------------------------------------#
+#######################################################################################
+add_executable(cublasmpBenchmark
+    src/cuBLASMpBenchmark.cpp src/cuBLASMpWrapped.cpp 
+    src/pblasDecomposition.cpp src/cudaCommunicator.cpp src/calSetup.cpp
+    src/cmatrix.cpp src/logging.cpp src/generalUtilities.cpp 
+)
+
+add_executable(cublasmpValidator
+    src/cuBLASMpValidator.cpp src/cuBLASMpWrapped.cpp 
+    src/pblasDecomposition.cpp src/cudaCommunicator.cpp src/calSetup.cpp
+    src/validation.cpp src/cmatrix.cpp src/logging.cpp src/generalUtilities.cpp
 )
 
 target_link_libraries(cublasmpBenchmark ${MPI_LINK} ${OPENBLAS_LINK} ${CAL_LINK} ${CUBLASMP_LINK} ${CUDA_LINK} ${SCALAPACK_LINK})
-target_link_libraries(pblasGEMM ${MPI_LINK} ${OPENBLAS_LINK} ${SCALAPACK_LINK} ${CUDA_LINK})
-# target_link_libraries(cyclicDecomposition ${MPI_LINK})
-target_link_libraries(paraliaBenchmark ${MPI_LINK} ${PARALIA_LINK} ${OPENBLAS_LINK} ${NUMACTL_LINK} ${CUDA_LINK})
-target_link_libraries(mpiBenchmark ${MPI_LINK} ${PARALIA_LINK} ${OPENBLAS_LINK} ${NUMACTL_LINK} ${CUDA_LINK})
+target_link_libraries(cublasmpValidator ${MPI_LINK} ${OPENBLAS_LINK} ${CAL_LINK} ${CUBLASMP_LINK} ${CUDA_LINK} ${SCALAPACK_LINK})
+
+##################################################################################
+#---------------------------SLATE Executables------------------------------------#
+##################################################################################
+add_executable(slateBenchmark
+    src/slateBenchmark.cpp src/validation.cpp src/cmatrix.cpp src/cudaCommunicator.cpp src/slateWrapped.cpp
+    src/logging.cpp src/generalUtilities.cpp
+)
+
+add_executable(slateValidator
+    src/slateValidator.cpp src/validation.cpp src/cmatrix.cpp src/cudaCommunicator.cpp src/slateWrapped.cpp
+    src/logging.cpp src/generalUtilities.cpp
+)
+target_link_libraries(slateValidator ${MPI_LINK} ${OPENBLAS_LINK} ${SLATE_LINK} ${CUDA_LINK} ${SCALAPACK_LINK})
+target_link_libraries(slateBenchmark ${MPI_LINK} ${OPENBLAS_LINK} ${SLATE_LINK} ${CUDA_LINK} ${SCALAPACK_LINK})
+
+##################################################################################
+#---------------------------COSMA Executables------------------------------------#
+##################################################################################
+add_executable(cosmaBenchmark
+    src/cosmaBenchmark.cpp src/validation.cpp src/cmatrix.cpp src/cosmaWrapped.cpp src/generalUtilities.cpp
+    src/validation.cpp src/cudaCommunicator.cpp src/logging.cpp
+)
+
+target_link_libraries(cosmaBenchmark ${MPI_LINK} ${COSMA_LINK} ${CUDA_LINK} ${SCALAPACK_LINK} ${NCCL_LINK})

@@ -113,3 +113,8 @@ MPI_Comm createGPUCommunicator()
 
     return deviceCommunicator;
 }
+
+bool checkCudaAwareMPI()
+{
+    return(MPIX_Query_cuda_support() == 1);
+}

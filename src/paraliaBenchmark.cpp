@@ -1,25 +1,4 @@
 #include "mpiBLAS_wrappers.hpp"
-/*  
-    Title: Optimizing Matrix-Matrix Multiplication for Multi-Node Multi-GPU (Supercomputer) environments
-
-    NECESSARY: IMPLEMENT CACHING FOR MORE STRAIGHT FORWARD BENCHMARKING
-    0. 2D Block Sequential Decomposition DONE
-    1. 2D Block Cyclic Decomposition  
-    2. BLAS to PBLAS translator 
-    3. cuBLASMp Wrapper (to compare against) DONE (Bonus: make distribution more CUDA aware)
-    4. CUDA Aware MPI Optimizations 
-    
-    Bonus:
-        5. PBLAS to BLAS translator (8a doume)
-*/
-
-/*
-    Peiramata:
-        1. cuBLASMp {GPUs Per node: 1, 2, 4}{NodeNumbers: 1, 2, 4, 8}{M=N=K: 4096 - 2^16: Step 4096}
-        2. 2D Block Sequential idia parameters
-
-        Warmup 10 runs - then run 10 runs
-*/
 
 int main(int argc, char* argv[]) {
     MPI_Init(&argc, &argv);

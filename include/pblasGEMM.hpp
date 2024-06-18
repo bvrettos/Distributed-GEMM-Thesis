@@ -27,8 +27,10 @@ extern "C" {
                 double * B, int * IB, int * JB, int * DESCB,
                 double * BETA,
                 double * C, int * IC, int * JC, int * DESCC );
+
 }
 
 void pblasDgemm(char* TransA, char* TransB, int M, int N, int K, double alpha, double* A, int lda, double* B, int ldb, double beta, double* C, int ldc, int Mb, int Nb, int dRow, int dCol);
+// void scalapackGemm(char* TransA, char* TransB, int M, int N, int K, double alpha, double* A, int lda, double* B, int ldb, double beta,double* C, int ldc, int Mb, int Nb, int dRow, int dCol);
 
 #endif

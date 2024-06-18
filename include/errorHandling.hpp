@@ -1,5 +1,6 @@
 #ifndef ERROR_HANDLING_HPP
 #define ERROR_HANDLING_HPP
+#include <stdio.h>
 
 #define MPI_CHECK(call)                                                                                                \
     do                                                                                                                 \

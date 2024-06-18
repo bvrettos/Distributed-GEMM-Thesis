@@ -1,6 +1,6 @@
 #include "pblasGEMM.hpp"
 
-// #define VALIDATE
+#define VALIDATE
 
 void pblasDgemm(char* TransA, char* TransB, int M, int N, int K, double alpha, double* A, int lda, double* B, int ldb, double beta,double* C, int ldc, int Mb, int Nb, int dRow, int dCol)
 {       
@@ -9,14 +9,9 @@ void pblasDgemm(char* TransA, char* TransB, int M, int N, int K, double alpha, d
     pblasDecomposer decomposerB(K, N, Mb, Nb, dRow, dCol, B, MPI_COMM_WORLD);
     pblasDecomposer decomposerC(M, N, Mb, Nb, dRow, dCol, C, MPI_COMM_WORLD);
 
-    const int64_t llda = decomposerA.localRows;
-    const int64_t loc_n_a = decomposerA.localColumns;
-
-    const int64_t lldb = decomposerB.localRows;
-    const int64_t loc_n_b = decomposerB.localColumns;
-
-    const int64_t lldc = decomposerC.localRows;
-    const int64_t loc_n_c = decomposerC.localColumns;
+    decomposerA.scatterMatrix();
+    decomposerB.scatterMatrix();
+    decomposerC.scatterMatrix();
 
     double *localA, *localB, *localC;
     localA = decomposerA.localMatrix;
@@ -54,6 +49,28 @@ void pblasDgemm(char* TransA, char* TransB, int M, int N, int K, double alpha, d
     return;
 }
 
+// void scalapackGemm(char* TransA, char* TransB, int M, int N, int K, double alpha, double* A, int lda, double* B, int ldb, double beta,double* C, int ldc, int Mb, int Nb, int dRow, int dCol)
+// {
+//     pblasDecomposer decomposerA(M, K, Mb, Nb, dRow, dCol, A, MPI_COMM_WORLD);
+//     pblasDecomposer decomposerB(K, N, Mb, Nb, dRow, dCol, B, MPI_COMM_WORLD);
+//     pblasDecomposer decomposerC(M, N, Mb, Nb, dRow, dCol, C, MPI_COMM_WORLD);
+
+//     decomposerA.scalapackScatter();
+//     decomposerB.scalapackScatter();
+//     decomposerC.scalapackScatter();
+
+//     int ia = 1, ja = 1, ib = 1, jb = 1, ic = 1, jc = 1;
+
+//     double t1 = MPI_Wtime();
+
+//     pdgemm_("N", "N", &M, &N, &K, &alpha, decomposerA.localMatrix, &ia, &ja, decomposerA.localMatrixDescriptor, decomposerB.localMatrix, &ib, &jb, decomposerB.localMatrixDescriptor,
+//           &beta, decomposerC.localMatrix, &ic, &jc, decomposerC.localMatrixDescriptor);
+    
+//     double t2 = MPI_Wtime();
+
+//     decomposerC.scalapackGather();
+// }
+
 int main(int argc, char* argv[])
 {
     MPI_Init(&argc, &argv);
@@ -78,9 +95,9 @@ int main(int argc, char* argv[])
         B = (double*) malloc(sizeof(double) * N * K);
         C = (double*) malloc(sizeof(double) * M * N);
 
-        generateMatrix(A, M, K);
-        generateMatrix(B, N, K);
-        generateMatrix(C, M, N);
+        MatrixInit(A, M, K, 0);
+        MatrixInit(B, N, K, 0);
+        MatrixInit(C, M, N, 0);
 
         referenceC = copyMatrix(C, M, N);
     }
@@ -92,6 +109,7 @@ int main(int argc, char* argv[])
     double t1 = MPI_Wtime();
 
     pblasDgemm("N", "N", M, N, K, alpha, A, lda, B, ldb, beta, C, ldc, 32, 32, 2 ,2);
+    // scalapackGemm("N", "N", M, N, K, alpha, A, lda, B, ldb, beta, C, ldc, 32, 32, 1 ,1);
     double t2 = MPI_Wtime();
 
     if (rank == 0) {

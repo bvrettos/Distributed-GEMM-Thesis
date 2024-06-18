@@ -1,4 +1,4 @@
-#ifndef CUDA_COMMUNINCATOR_HPP
+#ifndef CUDA_COMMUNICATOR_HPP
 #define CUDA_COMMUNICATOR_HPP
 
 #include <cuda.h>
@@ -9,9 +9,12 @@
 #include <cmath>
 #include "errorHandling.hpp"
 
+#include <mpi-ext.h>
+
 int getMaxGPUs();
 void getLocalDevice(int* localRank, int* deviceCount, int* localDeviceID);
 void calculateProcessGrid(int *dRow, int *dCol, int deviceCount);
 MPI_Comm createGPUCommunicator();
+bool checkCudaAwareMPI();
 
 #endif

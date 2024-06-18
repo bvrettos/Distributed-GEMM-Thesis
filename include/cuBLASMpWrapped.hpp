@@ -8,8 +8,8 @@
 #include "cmatrix.h"
 #include "pblasDecomposition.hpp"
 
-#include <stdio.h>
-#include <stdlib.h>
+#include <cstdio>
+#include <cstdlib>
 #include <time.h>
 #include <vector>
 #include <cublasmp.h>
@@ -17,9 +17,21 @@
 #include <cblas.h>
 #include <unistd.h>
 #include <logging.hpp>
+#include <generalUtilities.hpp>
 
-void cuBLASMpDgemmWrap(char TransA,  char TransB, long int M, long int N, long int K,
-  double alpha, double* A, long int ldA, double* B, long int ldB, double beta, double* C,
-  long int ldC, long int Mb, long int Nb, int dRow, int dCol);
+template <typename scalar_t>
+void cuBLASMpGEMMWrap(char TransA,  char TransB, const long long M, const long long N, const long long K,
+  scalar_t alpha, scalar_t* A, const long long ldA, scalar_t* B, const long long ldB, scalar_t beta, scalar_t* C,
+  const long long ldC, long int Mb, long int Nb);
+
+template <typename scalar_t>
+void cuBLASMpPreDistributedGemm(char TransA,  char TransB, const long long M, const long long N, const long long K,
+  scalar_t alpha, scalar_t* A, const long long ldA, scalar_t* B, const long long ldB, scalar_t beta, scalar_t* C,
+  const long long ldC, long int Mb, long int Nb, int numberOfRuns, bool logging, bool gatherResults);
+
+template <typename scalar_t>
+void cuBLASMpFullGemmOffload(char TransA,  char TransB, const long long M, const long long N, const long long K,
+  scalar_t alpha, scalar_t* A, const long long ldA, scalar_t* B, const long long ldB, scalar_t beta, scalar_t* C,
+  const long long ldC, long int Mb, long int Nb, int numberOfRuns, bool logging, bool gatherResults);
 
 #endif
