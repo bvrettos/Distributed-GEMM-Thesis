@@ -175,7 +175,7 @@ void generateMatrixGPU(T* array, const long long rows, const long long columns, 
             generateMatrixGPU(&array[rows*columns*i/partitions], rowsToGenerate, columns, deviceID);
         }
     
-        // return;
+        return;
     }
 
     long long int size = rows*columns;
@@ -258,6 +258,7 @@ void MatrixInit(T *matrix, const long long size, int loc)
     }
 }
 
+/* Create functions to copy from host-host, device-host, device-device */
 template void generateMatrixGPU<double>(double* array, const long long rows, const long long columns, const int deviceID);
 template void generateMatrixGPU<float>(float* array, const long long rows, const long long columns, const int deviceID);
 template void generateMatrixGPU<double>(double* array, const long long size, const int deviceID);

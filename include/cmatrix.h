@@ -13,6 +13,12 @@
 #include "errorHandling.hpp"
 #include "generalUtilities.hpp"
 
+#include <cstring>
+#include <type_traits>
+#include <memory>
+#include <utility>
+#include <algorithm>
+
 /* Print related functions */
 void printMatrix(double *array, const long long rows,  const long long columns, int rank);
 void printMatrixColumnMajor(double *array,  const long long rows,  const long long columns, int rank);

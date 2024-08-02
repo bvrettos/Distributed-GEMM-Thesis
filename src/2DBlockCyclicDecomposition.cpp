@@ -4,32 +4,11 @@ BlockCyclicMatrixDecomposer::BlockCyclicMatrixDecomposer(int rows, int columns, 
 {
     rowDiv = rows/blockRows;
     rowMod = rows%blockRows;
-
     colDiv = columns / blockColumns;
     colMod = columns % blockColumns;
 
     gridRows = (rows + blockRows - 1) / blockRows;
     gridColumns = (columns + blockColumns - 1) / blockColumns;
-
-    hasHorizontal = false;
-    hasVertical = false;
-    hasSmall = false;
-
-    /* Create block types */
-    if (rowMod) {
-        /* Create horizontal type */
-        hasHorizontal = true;
-    }
-
-    if (colMod) {
-        /* Create Vertical type */
-        hasVertical = true;
-    }
-
-    if (colMod && rowMod) {
-        /* Create smol type */
-        hasSmall = true;
-    }
 
     MPI_Comm_rank(communicator, &rank);
     MPI_Comm_size(communicator, &size);
@@ -37,39 +16,6 @@ BlockCyclicMatrixDecomposer::BlockCyclicMatrixDecomposer(int rows, int columns, 
     calculateVirtualDeviceGrid();
     procRow = rank / dCol;
     procCol = rank % dCol;
-
-    allocateLocalMatrix();
-}
-
-void BlockCyclicMatrixDecomposer::allocateLocalMatrix()
-{
-    /* Find out how many tiles (and what type of tiles) each process gets */
-    int totalTiles = gridRows*gridColumns;
-
-    if (size > totalTiles) {
-        std::cout << "Too many procs, remove some" << std::endl;
-        exit(1);
-    }
-
-    int tilesPerRank = totalTiles/size;
-    int extraTiles = totalTiles%size;
-    int rankTiles[size];
-
-    for (int i = 0; i < size; i++) {
-        rankTiles[i] = tilesPerRank;
-        if (extraTiles > 0) {
-            rankTiles[i]++;
-            extraTiles--;
-        }
-    }
-
-    int myTiles = rankTiles[rank];
-    int myTilesArray[myTiles];
-
-
-
-    /* Full retard mode but ok :( */
-    printf("Rank: %d has %d tiles\n", rank, myTiles);
 }
 
 void BlockCyclicMatrixDecomposer::calculateVirtualDeviceGrid()

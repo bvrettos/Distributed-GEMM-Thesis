@@ -1,23 +1,30 @@
 #include "2DBlockSequentialDecomposition.hpp"
+// #define DEBUG
 
-GEMM_BlockSequentialDecomposer::GEMM_BlockSequentialDecomposer(int M, int N, int K, MPI_Comm communicator) : M(M), N(N), K(K), GEMM_Communicator(communicator)
+BlockSequentialDecomposer::BlockSequentialDecomposer(int M, int N, int K, MPI_Comm communicator, bool colMajor) : M(M), N(N), K(K), GEMM_Communicator(communicator), colMajor(colMajor)
 {
     MPI_CHECK(MPI_Comm_rank(GEMM_Communicator, &rank));
-    MPI_CHECK(MPI_Comm_size(GEMM_Communicator, &communicatorSize));
-
-    numberOfDevices = communicatorSize;
-
+    MPI_CHECK(MPI_Comm_size(GEMM_Communicator, &size));
+    numberOfDevices = size;
     calculateVirtualDeviceGrid();
 
     localM = M/dRow;
     localN = N/dCol;
     localK = K;
 
-    allocateMPIDatatypes();
-    calculateScatterValues();
+    /* No need for process communication - do not create a process grid, just calculate it */
+    processRow = rank/dCol;
+    processColumn = rank%dCol;
+
+    if ((processRow + 1) == dRow) {
+        localM += M%dRow;
+    }
+    if ((processColumn + 1) == dCol) {
+        localN += N%dCol;
+    }
 }
 
-void GEMM_BlockSequentialDecomposer::calculateVirtualDeviceGrid()
+void BlockSequentialDecomposer::calculateVirtualDeviceGrid()
 {
     int Px = std::sqrt(numberOfDevices);
     int Py = Px;
@@ -27,6 +34,7 @@ void GEMM_BlockSequentialDecomposer::calculateVirtualDeviceGrid()
         Py = numberOfDevices;
         Px = 1;
     }
+    
     /* If more than 4 devices, find the most square decomposition */
     int counter;
     for (counter = Px; counter > 0; --counter) 
@@ -43,118 +51,208 @@ void GEMM_BlockSequentialDecomposer::calculateVirtualDeviceGrid()
 
     dRow = Py;
     dCol = Px;
-
-#ifdef DEBUG
-    printf("dRow: %d - dCol: %d\n", dRow, dCol);
-#endif
 }
 
-void GEMM_BlockSequentialDecomposer::allocateMPIDatatypes()
+void BlockSequentialDecomposer::deliverMatrix(double* globalA, double* globalB, double* globalC, double** localA, double** localB, double** localC)
 {
-    /* Local 2D block MPI Definitions */
-    MPI_Type_vector(localM, localK, localK, MPI_DOUBLE, &dummy);
-    MPI_Type_create_resized(dummy, 0, sizeof(double), &localBlockA);
-    MPI_Type_commit(&localBlockA);
-
-    MPI_Type_vector(localK, localN, localN, MPI_DOUBLE, &dummy);
-    MPI_Type_create_resized(dummy, 0, sizeof(double), &localBlockB);
-    MPI_Type_commit(&localBlockB);
-
-    MPI_Type_vector(localM, localN, localN, MPI_DOUBLE, &dummy);
-    MPI_Type_create_resized(dummy, 0, sizeof(double), &localBlockC);
-    MPI_Type_commit(&localBlockC);
-
-    /* Global 2D block MPI Definitions */
-    MPI_Type_vector(localM, localK, K, MPI_DOUBLE, &dummy);
-    MPI_Type_create_resized(dummy, 0, sizeof(double), &globalBlockA);
-    MPI_Type_commit(&globalBlockA);
-
-    MPI_Type_vector(localK, localN, N, MPI_DOUBLE, &dummy);
-    MPI_Type_create_resized(dummy, 0, sizeof(double), &globalBlockB);
-    MPI_Type_commit(&globalBlockB);
-
-    MPI_Type_vector(localM, localN, N, MPI_DOUBLE, &dummy);
-    MPI_Type_create_resized(dummy, 0, sizeof(double), &globalBlockC);
-    MPI_Type_commit(&globalBlockC);
-}
-
-void GEMM_BlockSequentialDecomposer::calculateScatterValues()
-{
+    /* Sender is rank = 0. Number of Tiles are 3 per rank, remove rank==0 tiles because they are transfered locally. So, number of tiles are (size-1)*3 */
+    int sendCount = 0, receiveCount = 3;
     if (rank == 0) {
-        scatterOffsetA = (int*) malloc(numberOfDevices * sizeof(int));
-        scatterCountA = (int*) malloc(numberOfDevices * sizeof(int));
-
-        scatterOffsetB = (int*) malloc(numberOfDevices * sizeof(int));
-        scatterCountB = (int*) malloc(numberOfDevices * sizeof(int));
-
-        scatterOffsetC = (int*) malloc(numberOfDevices * sizeof(int));
-        scatterCountC = (int*) malloc(numberOfDevices * sizeof(int));
-
-        /* C Scattering 2D Sequential Decomp*/
-        for (int i = 0; i < dRow; i++) {   
-            for (int j = 0; j < dCol; j++) {
-                scatterCountC[i*dCol + j] = 1;
-                scatterOffsetC[i*dCol + j] = localM * localN * dCol * i + localN * j;
-            }
-        }
-
-        /* A Scattering 1D Decomp*/
-        for (int i = 0; i < dRow; i++) {
-            for (int j = 0; j < dCol; j++) {
-                scatterCountA[i*dCol + j] = 1;
-                scatterOffsetA[i*dCol + j] = localM*localK*i;
-            }
-        }
-
-        /* B Scattering 1D Decomp*/
-        for (int i = 0; i < dCol; i++) {
-            for (int j = 0; j < dRow; j++) {
-                scatterCountB[j*dCol + i] = 1;
-                scatterOffsetB[j*dCol + i] = localN*i;
-            }
-        }
-
-        #ifdef DEBUG
-            for (int k = 0; k < size; k++) {
-                std::cout << "ScatteroffsetA: " << scatterOffsetA[k] << std::endl;
-                std::cout << "ScatteroffsetB: " << scatterOffsetB[k] << std::endl;
-                std::cout << "ScatteroffsetC: " << scatterOffsetC[k] << std::endl;
-                std::cout << std::endl;
-            }
-        #endif
+        sendCount = (size-1)*3;
+        receiveCount = 0;
     }
-}
-
-void GEMM_BlockSequentialDecomposer::scatterMatrices(double* A, double* B, double* C, double* localA, double* localB, double* localC)
-{
-    /* Scatter Matrices */
-    MPI_CHECK(MPI_Scatterv(A, scatterCountA, scatterOffsetA, globalBlockA, localA, 1, localBlockA, 0, GEMM_Communicator));
-    MPI_CHECK(MPI_Scatterv(B, scatterCountB, scatterOffsetB, globalBlockB, localB, 1, localBlockB, 0, GEMM_Communicator));
-    MPI_CHECK(MPI_Scatterv(C, scatterCountC, scatterOffsetC, globalBlockC, localC, 1, localBlockC, 0, GEMM_Communicator));
-}
-
-void GEMM_BlockSequentialDecomposer::gatherResult(double* C, double* localC)
-{
-    MPI_CHECK(MPI_Gatherv(localC, 1, localBlockC, C, scatterCountC, scatterOffsetC, globalBlockC, 0, GEMM_Communicator));
-}
-
-GEMM_BlockSequentialDecomposer::~GEMM_BlockSequentialDecomposer()
-{
-    if (rank == 0) {
-        free(scatterCountA);
-        free(scatterCountB);
-        free(scatterCountC);
-
-        free(scatterOffsetA);
-        free(scatterOffsetB);
-        free(scatterOffsetC);
+    MPI_Request* sendRequests;
+    if (sendCount > 0) {
+        sendRequests = new MPI_Request[sendCount];
+    }
+    MPI_Request* receiveRequests;
+    if (receiveCount > 0) {
+        receiveRequests = new MPI_Request[receiveCount];
     }
 
-    MPI_Type_free(&localBlockA);
-    MPI_Type_free(&localBlockB);
-    MPI_Type_free(&localBlockC);
+    int sendIndex = 0;
+    int receiveIndex = 0;    
 
-    MPI_Type_free(&globalBlockA);
-    MPI_Type_free(&globalBlockB);
-    MPI_Type_free(&globalBlockC);
+    /* Matrix belongs to rank 0, total blocks are dRow * dCol. */
+    long long tileK = K;
+    for (int i = 0; i < dRow; i++) {
+        long long tileM = M/dRow;
+        if (i+1 == dRow)
+            tileM += M%dRow;
+
+        for (int j = 0; j < dCol; j++) {
+            int receiverRank = i*dCol + j;
+            long long tileN =  N/dCol;
+            if (j+1 == dCol)
+                tileN += N%dCol;
+        
+            /* Row-Major Offsets */
+            int aOffset = (M/dRow)*K*i;
+            int bOffset = (N/dCol)*j;
+            int cOffset = (M/dRow)*N*i + (N/dCol)*j;
+            long long llda, lldb, lldc;
+            long long lda, ldb, ldc;
+            lda = K;
+            ldb = N;
+            ldc = N;
+            llda = tileK;
+            lldb = tileN;
+            lldc = tileN;
+
+            if (colMajor) {
+                aOffset = (M/dRow)*i;
+                bOffset = (N/dCol)*K*j;
+                cOffset = (N/dCol)*M*j + (M/dRow)*i;
+                lda = M;
+                ldb = K;
+                ldc = M;
+                llda = tileM;
+                lldb = tileK;
+                lldc = tileM;
+            }
+
+            #ifdef DEBUG
+                if (rank == 0) {
+                    printf("Rank %d needs to receive tiles of dimensions A(%d, %d), B(%d, %d), C(%d, %d)\n", receiverRank, tileM, tileK, tileK, tileN, tileM, tileN);
+                    printf("Current Strides: A[%d], B[%d], C[%d]\n", aOffset, bOffset, cOffset);
+                }
+            #endif
+
+            /* Receive Blocks */
+            if ((rank == receiverRank) && (rank != 0)) {
+                receiveBlock(tileM, tileK, *localA, llda, 0, 0, &receiveRequests[receiveIndex++], colMajor);
+                receiveBlock(tileK, tileN, *localB, lldb, 0, 0, &receiveRequests[receiveIndex++], colMajor);
+                receiveBlock(tileM, tileN, *localC, lldc, 0, 0, &receiveRequests[receiveIndex++], colMajor);
+            }
+            
+            /* Let's say that memory has already been allocated */
+            if (rank == 0) {
+                if (rank == receiverRank) {
+                    /* Copy blocks to local memory instead of sending blocks through MPI */
+                    copyBlock(tileM, tileK, globalA, *localA, lda, llda, colMajor);
+                    copyBlock(tileK, tileN, globalB, *localB, ldb, lldb, colMajor);
+                    copyBlock(tileM, tileN, globalC, *localC, ldc, lldc, colMajor);
+                }
+                else {
+                    /* Send Tiles */
+                    transferBlock(tileM, tileK, &globalA[aOffset], lda, receiverRank, 0, &sendRequests[sendIndex++], colMajor);
+                    transferBlock(tileK, tileN, &globalB[bOffset], ldb, receiverRank, 0, &sendRequests[sendIndex++], colMajor);
+                    transferBlock(tileM, tileN, &globalC[cOffset], ldc, receiverRank, 0, &sendRequests[sendIndex++], colMajor);
+                }
+            }
+        }
+    }
+
+    for (int i = 0; i < receiveCount; i++) {
+        int idx;
+        MPI_Waitany(receiveIndex, receiveRequests, &idx, MPI_STATUS_IGNORE);
+    }
+    
+    if (receiveCount > 0) {   
+        delete[] receiveRequests;
+    }
+
+    /* After sending all requests, then wait */
+    if (sendCount > 0) {
+        MPI_Waitall(sendIndex, sendRequests, MPI_STATUSES_IGNORE);
+        delete[] sendRequests;
+    }
+
+    // printMatrix(*localA, localM, localK, rank);
+}
+
+void BlockSequentialDecomposer::gatherResult(int gatherRank, double* C, double* localC)
+{
+    int sendCount = 1, receiveCount = 0;
+    if (rank == gatherRank) {
+        sendCount = 0;
+        receiveCount = size-1;
+    }
+
+    MPI_Request* sendRequests;
+    if (sendCount > 0) 
+        sendRequests = new MPI_Request[sendCount];
+    
+    MPI_Request* receiveRequests;
+    if (receiveCount > 0)
+        receiveRequests = new MPI_Request[receiveCount];
+
+    int sendIndex = 0;
+    int receiveIndex = 0;
+
+    long long tileK = K;
+
+    for (int i = 0; i < dRow; i++) {
+        long long tileM = M/dRow;
+        if (i+1 == dRow)
+            tileM += M%dRow;
+        
+        for (int j = 0; j < dCol; j++) {
+            int senderRank = i*dCol + j;
+
+            long long tileN = N/dCol;
+            if (j+1 == dCol)
+                tileN += N%dCol;
+
+            /* Row-Major Offsets */
+            int cOffset = (M/dRow)*N*i + (N/dCol)*j;
+            int senderCOffset = (M/dRow)*N*processRow + (N/dCol)*processColumn;
+            long long lldc;
+            long long ldc;
+
+            ldc = N;
+            lldc = tileN;
+
+            if (colMajor) {
+                cOffset = (N/dCol)*M*j + (M/dRow)*i;
+                senderCOffset = (N/dCol)*M*processColumn + (M/dRow)*processRow;
+                ldc = M;
+                lldc = tileM;
+            }
+
+            #ifdef DEBUG
+                if (rank == 0) {
+                    printf("Will Gather C(%d, %d)\n", tileM, tileN);
+                    printf("Current Stride: C[%d]\n", cOffset);
+                }
+            #endif
+
+            if ((rank == senderRank) && (rank != gatherRank)) {
+                /* Send Blocks */
+                transferBlock(tileM, tileN, localC, lldc, gatherRank, 0, &sendRequests[sendIndex++], colMajor);
+            }
+
+            if (rank == gatherRank) {
+                if (rank == senderRank) {
+                    /* Instead of sending block to yourself, copy from local memory */
+                    copyBlock(tileM, tileN, localC, &C[senderCOffset], lldc, ldc, colMajor);
+                }
+                else {
+                    /* Receive Blocks from others */
+                    receiveBlock(tileM, tileN, &C[cOffset], ldc, senderRank, 0, &receiveRequests[receiveIndex++], colMajor);
+                }
+            }
+        }
+    }
+
+    /* Waitall for receivers/senders */
+    if (receiveCount > 0) {
+        for (int i = 0; i < receiveIndex; i++) {
+            int idx;
+            MPI_Waitany(receiveIndex, receiveRequests, &idx, MPI_STATUS_IGNORE);
+        }
+        delete[] receiveRequests;
+    }
+
+    if (sendCount > 0) {
+        MPI_Waitall(sendIndex, sendRequests, MPI_STATUSES_IGNORE);
+        delete[] sendRequests;
+    }
+
+    return;
+}
+
+BlockSequentialDecomposer::~BlockSequentialDecomposer()
+{
+
 }

@@ -70,9 +70,9 @@ void cuBLASMpPreDistributedGemm(char TransA,  char TransB, const long long M, co
     double decompositionStart = MPI_Wtime();
     
     /* Decompose Matrices */    
-    pblasDecomposer decomposerA(M, K, Mb, Nb, dRow, dCol, A, MPI_COMM_WORLD);
-    pblasDecomposer decomposerB(K, N, Mb, Nb, dRow, dCol, B, MPI_COMM_WORLD);
-    pblasDecomposer decomposerC(M, N, Mb, Nb, dRow, dCol, C, MPI_COMM_WORLD);
+    pblasDecomposer decomposerA(M, K, Mb, Nb, MPI_COMM_WORLD);
+    pblasDecomposer decomposerB(K, N, Mb, Nb, MPI_COMM_WORLD);
+    pblasDecomposer decomposerC(M, N, Mb, Nb, MPI_COMM_WORLD);
 
     double decompositionEnd = MPI_Wtime();
 
@@ -94,8 +94,6 @@ void cuBLASMpPreDistributedGemm(char TransA,  char TransB, const long long M, co
     MatrixInit(localA, llda, loc_n_a, 0);
     MatrixInit(localB, lldb, loc_n_b, 0);
     MatrixInit(localC, lldc, loc_n_c, 0);
-
-    decomposerC.localMatrix = localC;
 
     /* Host To Device. In metrics, if you want to show all-host or all-device, you need to either subtract or not this value */
     double memcpyStart = MPI_Wtime();
@@ -230,14 +228,13 @@ void cuBLASMpPreDistributedGemm(char TransA,  char TransB, const long long M, co
         CAL_CHECK(cal_comm_barrier(calCommunicator, stream));
         double executionEnd = MPI_Wtime();
 
-
         CUDA_CHECK(cudaMemcpyAsync(localC, d_C, lldc * loc_n_c * sizeof(double), cudaMemcpyDeviceToHost, stream));
         double gatherStart = MPI_Wtime();
         /* Gather results */
         if (gatherResults) {
             CAL_CHECK(cal_stream_sync(calCommunicator, stream));
             CAL_CHECK(cal_comm_barrier(calCommunicator, stream));
-            decomposerC.gatherMatrix();
+            decomposerC.gatherMatrix(0, C, localC);
         }
 
         double gatherEnd = MPI_Wtime();
@@ -356,13 +353,10 @@ void cuBLASMpFullGemmOffload(char TransA,  char TransB, const long long M, const
 
     /* Decompose Matrices */
     double decompositionStart = MPI_Wtime();
-    pblasDecomposer decomposerA(M, K, Mb, Nb, dRow, dCol, A, MPI_COMM_WORLD);
-    pblasDecomposer decomposerB(K, N, Mb, Nb, dRow, dCol, B, MPI_COMM_WORLD);
-    pblasDecomposer decomposerC(M, N, Mb, Nb, dRow, dCol, C, MPI_COMM_WORLD);
+    pblasDecomposer decomposerA(M, K, Mb, Nb, MPI_COMM_WORLD);
+    pblasDecomposer decomposerB(K, N, Mb, Nb, MPI_COMM_WORLD);
+    pblasDecomposer decomposerC(M, N, Mb, Nb, MPI_COMM_WORLD);
 
-    decomposerA.scatterMatrix();
-    decomposerB.scatterMatrix();
-    decomposerC.scatterMatrix();
     double decompositionEnd = MPI_Wtime();
 
     const int64_t llda = decomposerA.localRows;
@@ -374,11 +368,11 @@ void cuBLASMpFullGemmOffload(char TransA,  char TransB, const long long M, const
     const int64_t lldc = decomposerC.localRows;
     const int64_t loc_n_c = decomposerC.localColumns;
 
-    /* Generate Matrix Data */
+    /* Scatter Matrix */
     double *localA, *localB, *localC;
-    localA = decomposerA.localMatrix;
-    localB = decomposerB.localMatrix;
-    localC = decomposerC.localMatrix;
+    decomposerA.scatterMatrix(0, A, localA);
+    decomposerB.scatterMatrix(0, B, localB);
+    decomposerC.scatterMatrix(0, C, localC);
 
     /* Host To Device. In metrics, if you want to show all-host or all-device, you need to either subtract or not this value */
     double memcpyStart = MPI_Wtime();
@@ -515,10 +509,10 @@ void cuBLASMpFullGemmOffload(char TransA,  char TransB, const long long M, const
         double gatherStart = MPI_Wtime();
         /* Gather results */
         if (gatherResults) {
-            CUDA_CHECK(cudaMemcpyAsync(localC, d_C, lldc * loc_n_c * sizeof(double), cudaMemcpyDeviceToHost, stream));
+            CUDA_CHECK(cudaMemcpyAsync(localC, d_C, lldc * loc_n_c * sizeof(double), cudaMemcpyDeviceToHost, stream));    
             CAL_CHECK(cal_stream_sync(calCommunicator, stream));
             CAL_CHECK(cal_comm_barrier(calCommunicator, stream));
-            decomposerC.gatherMatrix();
+            decomposerC.gatherMatrix(0, C, localC);
         }
         double gatherEnd = MPI_Wtime();
         
@@ -618,13 +612,9 @@ void cuBLASMpGEMMWrap(char TransA,  char TransB, const long long M, const long l
     size_t workspaceInBytesOnHost = 0;
 
     /* Decompose Matrices */    
-    pblasDecomposer decomposerA(M, K, Mb, Nb, dRow, dCol, A, MPI_COMM_WORLD);
-    pblasDecomposer decomposerB(K, N, Mb, Nb, dRow, dCol, B, MPI_COMM_WORLD);
-    pblasDecomposer decomposerC(M, N, Mb, Nb, dRow, dCol, C, MPI_COMM_WORLD);
-
-    decomposerA.scatterMatrix();
-    decomposerB.scatterMatrix();
-    decomposerC.scatterMatrix();
+    pblasDecomposer decomposerA(M, K, Mb, Nb, MPI_COMM_WORLD);
+    pblasDecomposer decomposerB(K, N, Mb, Nb, MPI_COMM_WORLD);
+    pblasDecomposer decomposerC(M, N, Mb, Nb, MPI_COMM_WORLD);
 
     const int64_t llda = decomposerA.localRows;
     const int64_t loc_n_a = decomposerA.localColumns;
@@ -636,9 +626,19 @@ void cuBLASMpGEMMWrap(char TransA,  char TransB, const long long M, const long l
     const int64_t loc_n_c = decomposerC.localColumns;
 
     double *localA, *localB, *localC;
-    localA = decomposerA.localMatrix;
-    localB = decomposerB.localMatrix;
-    localC = decomposerC.localMatrix;
+    localA = (double*) malloc(sizeof(double) * llda * loc_n_a);
+    localB = (double*) malloc(sizeof(double) * lldb * loc_n_b);
+    localC = (double*) malloc(sizeof(double) * lldc * loc_n_c);
+
+    double decompStart = MPI_Wtime();
+    decomposerA.scatterMatrix(0, A, localA);
+    decomposerB.scatterMatrix(0, B, localB);
+    decomposerC.scatterMatrix(0, C, localC);
+    double decompEnd = MPI_Wtime();
+
+    double decomp = decompEnd-decompStart;
+    if (rank == 0)
+        printf("Decomp Time: %lf\n", decomp);
 
     /* Host To Device. In metrics, if you want to show all-host or all-device, you need to either subtract or not this value */
     CUDA_CHECK(cudaMallocAsync(&d_A, llda * loc_n_a * sizeof(double), stream));
@@ -733,7 +733,15 @@ void cuBLASMpGEMMWrap(char TransA,  char TransB, const long long M, const long l
     if (rank == 0)
         printf("ExecutionTime: %lf\n", executionAfter - executionBefore);
     CUDA_CHECK(cudaMemcpyAsync(localC, d_C, lldc * loc_n_c * sizeof(double), cudaMemcpyDeviceToHost, stream));
-    decomposerC.gatherMatrix();
+    CAL_CHECK(cal_stream_sync(calCommunicator, stream));
+    CAL_CHECK(cal_comm_barrier(calCommunicator, stream));
+
+    double gatherStart = MPI_Wtime();
+    decomposerC.gatherMatrix(0, C, localC);
+    double gatherEnd = MPI_Wtime();
+    double gather = gatherEnd-gatherStart;
+    if (rank == 0)
+        printf("Gather: %lf\n", gather);
 
     /* 14. Destroy Everything */
     CUBLAS_CHECK(cublasMpMatrixDescriptorDestroy(handle, descA));

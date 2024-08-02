@@ -23,16 +23,10 @@ class BlockCyclicMatrixDecomposer
 
         int rowDiv, rowMod;
         int colDiv, colMod;
-        bool hasHorizontal, hasVertical, hasSmall;
-
-        MPI_Datatype block, horizontal, vertical, small;
-        MPI_Datatype globalBlock, globalHorizontal, globalVertical, globalSmall;
-        MPI_Comm communicator;
 
         BlockCyclicMatrixDecomposer(int rows, int columns, int blockRows, int blockColumns, MPI_Comm communicator);
         BlockCyclicMatrixDecomposer(int rows, int columns, int blockRows, int blockColumns);
 
-        void allocateLocalMatrix();
         void calculateVirtualDeviceGrid();
         ~BlockCyclicMatrixDecomposer();
 };

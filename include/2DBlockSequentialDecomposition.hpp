@@ -6,38 +6,36 @@
 #include <cstdlib>
 #include <cstdio>
 #include "errorHandling.hpp"
+#include <map>
+#include <tuple>
+#include <iostream>
+#include <cmatrix.h>
+#include <transfers.hpp>
 
-class GEMM_BlockSequentialDecomposer {
+class BlockSequentialDecomposer {
     private:
     public:
         /* GEMM and Grid specifications */
         int M, N, K;
         int localM, localN, localK;
         int dRow, dCol, numberOfDevices;
+        bool colMajor;
 
         /* Process Values */
         int rank;
-        int communicatorSize;
+        int size;
+        int processRow, processColumn;
         
         /* MPI Related Structures */
         MPI_Comm GEMM_Communicator;
-        MPI_Datatype localBlockA, localBlockB, localBlockC;
-        MPI_Datatype globalBlockA, globalBlockB, globalBlockC;
-        MPI_Datatype dummy;
 
         /* Scatter Values */
-        int *scatterOffsetA, *scatterOffsetB, *scatterOffsetC;
-        int *scatterCountA, *scatterCountB, *scatterCountC;
-
-        GEMM_BlockSequentialDecomposer(int M, int N, int K, MPI_Comm communicator);
-
+        BlockSequentialDecomposer(int M, int N, int K, MPI_Comm communicator, bool colMajor=true);
         void calculateVirtualDeviceGrid();
-        void allocateMPIDatatypes();
-        void calculateScatterValues();
-        void scatterMatrices(double* A, double* B, double* C, double* localA, double* localB, double* localC);
-        void gatherResult(double* C, double* localC);
+        void deliverMatrix(double* globalA, double* globalB, double* globalC, double** localA, double** localB, double** localC);
+        void gatherResult(int gatherRank, double* C, double* localC);
 
-        ~GEMM_BlockSequentialDecomposer();
+        ~BlockSequentialDecomposer();
 };
 
 #endif

@@ -22,144 +22,205 @@ int numroc(int n, int nb, int iproc, int isrproc, int nprocs)
     return numroc;
 }
 
-pblasDecomposer::pblasDecomposer(int M, int N, int Mb, int Nb, int dRow, int dCol, double* globalMatrix, MPI_Comm communicator) : M(M), N(N), Mb(Mb), Nb(Nb)
+pblasDecomposer::pblasDecomposer(int M, int N, int Mb, int Nb, MPI_Comm communicator) : M(M), N(N), Mb(Mb), Nb(Nb), communicator(communicator)
 {
-    this->communicator = communicator;
-    this->globalMatrix = globalMatrix;
+    MPI_Comm_rank(communicator, &rank);
+    MPI_Comm_size(communicator, &size);
 
-    /* Calculate grid dimensions */
-    this->dRow = dRow;
-    this->dCol = dCol;
+    /* Process Grid (Row-Major)*/
+    calculateProcessGrid(&dRow, &dCol, size);
+    int rootRow = 0;
+    int rootCol = 0;
 
-    rootRow = 0;
-    rootCol = 0;
+    procRow = rank/dCol;
+    procColumn = rank%dCol;
 
+    /* Block Grid */
+    gridRows = M/Mb;
+    if (M%Mb)
+        gridRows++; // Extra blocks
+    gridColumns = N/Nb;
+    if (N%Nb)
+        gridColumns++; // Extra blocks
+
+    #ifdef DEBUG
+        if (rank == 0)
+            printf("Grid: %d x %d blocks\n", gridRows, gridColumns);
+    #endif
+
+    /* Local Matrix Dimensions */
     localRows = numroc(M, Mb, procRow, rootCol, dRow);
-    localColumns = numroc(N, Nb, procCol, rootRow, dCol);
+    localColumns = numroc(N, Nb, procColumn, rootRow, dCol);
 
-    // scatterMatrix();
-}
+    myBlocks=0;
 
-void pblasDecomposer::createCblacsContext()
-{   
-    Cblacs_pinfo(&rank, &numberOfProcesses);  
-    Cblacs_get(0, 0, &cblacsContext);
-    Cblacs_gridinit(&cblacsContext, "Row-Major", dRow, dCol);
-    Cblacs_pcoord(cblacsContext, rank, &procRow, &procCol);
-
-    #ifdef DEBUG
-        for (int row = 0; row < dRow; row++) {
-            for (int col = 0; col < dCol; col++) {
-                if (procRow == row && procCol == col)
-                    printf("Rank: %d, procRow: %d, procCol: %d\n", rank, procRow, procCol);
-            }
-            if (rank == 0)
-                std::cout << std::endl;
-        }
-    #endif
-}
-
-void pblasDecomposer::allocateLocalMatrix()
-{
-
-    localMatrix = (double* ) malloc(sizeof(double) * localRows * localColumns);
-
-    #ifdef DEBUG
-        printf("Rank: %d, Local Rows: %d, Local Columns: %d\n", rank, localRows, localColumns);
-    #endif
-}
-
-void pblasDecomposer::scatterMatrix()
-{
-    createCblacsContext();
-    allocateLocalMatrix();
-
-    int sendRow = 0, sendCol = 0;
-    int receiveRow=0, receiveColumn=0;
-    MPI_Datatype datatype, globalDatatype;
-
-    bool vertical, horizontal;
-
-    for (int row = 0; row < M; row += Mb, sendRow = (sendRow+1) % dRow) {
-        sendCol = 0;
-        horizontal = false;
-
-        int numRows = Mb;
-        /* Is this last row block?*/
-        if (M - row < Mb)
-            numRows = M - row;
-            
-        for (int col = 0; col < N; col += Nb, sendCol = (sendCol+1) % dCol) {
-            int numCols = Nb;
-            /* Is this last column block? */
-            if (N - col < Nb)
-                numCols = N - col;
-
-            /* Send block*/
-            if (rank == 0) {            
-                Cdgesd2d(cblacsContext, numRows, numCols, &globalMatrix[col*M + row], M, sendRow, sendCol);
-            }
-
-            /* Receive block*/
-            if (procRow == sendRow && procCol == sendCol) {
-                Cdgerv2d(cblacsContext, numRows, numCols, &localMatrix[receiveColumn*localRows + receiveRow], localRows, 0, 0);
-                receiveColumn = (receiveColumn + numCols) % localColumns;
+    for (int i = 0; i < gridRows; i++) {
+        if (i%dRow == procRow) {
+            for (int j = 0; j < gridColumns; j++) {
+                if (j%dCol == procColumn) {
+                    myBlocks++;
+                }
             }
         }
-
-        if (procRow == sendRow) 
-            receiveRow = (receiveRow + numRows) % localRows;
-        Cblacs_barrier(cblacsContext, "All");
     }
 
     #ifdef DEBUG
-        printf("Rank: %d finished scattering data\n", rank);
+        printf("Rank: %d has %d blocks in %lldx%lld Matrix with %dx%d tiling\n", rank, myBlocks, M, N, Mb, Nb);
+        printf("Rank: %d, procRow %d procCol %d\n");
     #endif
 }
 
-void pblasDecomposer::gatherMatrix()
+void pblasDecomposer::scatterMatrix(int senderRank, double* globalMatrix, double* localMatrix)
+{
+    int receiverProcessRow = 0, receiverProcessColumn = 0;
+    int rowOffset = 0, columnOffset = 0;
+    int sendIndex=0, receiveIndex=0;
+    
+    int sendCount = 0;
+    int receiveCount = myBlocks;
+    if (rank == senderRank) {
+        sendCount = gridRows*gridColumns - myBlocks;
+        receiveCount = 0;
+    }
+
+    // printf("Rank %d has %d send and %d receive requests\n", rank, sendCount, receiveCount);
+
+    MPI_Request* sendRequests;
+    MPI_Request* receiveRequests;
+    if (sendCount > 0)
+        sendRequests = new MPI_Request[sendCount];
+    if (receiveCount > 0)
+        receiveRequests = new MPI_Request[receiveCount];
+
+    for (int row = 0; row < M; row += Mb, receiverProcessRow = (receiverProcessRow+1) % dRow) {
+        receiverProcessColumn = 0;
+
+        int rowsToSend = Mb;
+        /* Is this last row block?*/
+        if (M - row < Mb)
+            rowsToSend = M - row;
+            
+        for (int col = 0; col < N; col += Nb, receiverProcessColumn = (receiverProcessColumn+1) % dCol) {
+            int receiverRank = receiverProcessRow*dCol + receiverProcessColumn;
+            int columnsToSend = Nb;
+            /* Is this last column block? */
+            if (N - col < Nb)
+                columnsToSend = N - col;
+
+            /* Send block*/
+            if (rank == senderRank) {
+                if (rank == receiverRank)
+                    copyBlock(rowsToSend, columnsToSend, &globalMatrix[col*M + row], &localMatrix[columnOffset*localRows + rowOffset], M, localRows); /* If you are the owner of the global matrix, copy block locally */
+                else
+                    transferBlock(rowsToSend, columnsToSend, &globalMatrix[col*M + row], M, receiverRank, 0, &sendRequests[sendIndex++]);
+            }
+
+            /* Receive block*/
+            if ((rank == receiverRank) && (rank != senderRank)) {
+                receiveBlock(rowsToSend, columnsToSend, &localMatrix[columnOffset*localRows + rowOffset], localRows, senderRank, 0, &receiveRequests[receiveIndex++]);
+            }
+
+            /* Update offset */
+            if (rank == receiverRank)
+                columnOffset = (columnOffset + columnsToSend) % localColumns;
+        }
+
+        /* If you just got sent a block, then change your row offset */
+        if (procRow == receiverProcessRow) 
+            rowOffset = (rowOffset + rowsToSend) % localRows;
+    }
+
+    /* Trading phase over, wait for tiles */
+    for (int i = 0; i < receiveCount; i++) {
+        int idx;
+        MPI_Waitany(receiveIndex, receiveRequests, &idx, MPI_STATUS_IGNORE);
+    }
+
+    if (receiveCount > 0)
+        delete[] receiveRequests;
+    
+    if (sendCount > 0) {
+        MPI_Waitall(sendIndex, sendRequests, MPI_STATUSES_IGNORE);
+        delete[] sendRequests;
+    }
+
+    return;
+}
+
+void pblasDecomposer::gatherMatrix(int receiverRank, double* globalMatrix, double* localMatrix)
 {
     /* Gather matrix */
-    int sendRow = 0, sendCol = 0;
-    int receiveRow=0, receiveColumn=0;
+    int senderProcessRow = 0, senderProcessColumn = 0;
+    int rowOffset=0, columnOffset=0;
 
-    for (int row = 0; row < M; row += Mb, sendRow=(sendRow+1) % dRow) {
-        sendCol = 0;
-        // Number of rows to be sent
+    int sendIndex = 0, receiveIndex = 0;
+    
+    int sendCount = myBlocks; // Each process sends their blocks
+    int receiveCount = 0;
+    if (rank == receiverRank) {
+        sendCount = 0;
+        receiveCount = gridRows*gridColumns - myBlocks; // Receiver rank in total gets all of the blocks minus their own.
+    }
+
+    MPI_Request* sendRequests;
+    MPI_Request* receiveRequests;
+    if (sendCount > 0)
+        sendRequests = new MPI_Request[sendCount];
+    if (receiveCount > 0)
+        receiveRequests = new MPI_Request[receiveCount];
+
+    for (int row = 0; row < M; row += Mb, senderProcessRow=(senderProcessRow+1) % dRow) {
+        senderProcessColumn = 0;
+
         // Is this the last row block?
-        int numRows = Mb;
+        int rowsToReceive = Mb;
         if (M - row < Mb)
-            numRows = M - row;
+            rowsToReceive = M - row;
  
-        for (int col = 0; col < N; col += Nb, sendCol = (sendCol+1) % dCol) {
+        for (int col = 0; col < N; col += Nb, senderProcessColumn = (senderProcessColumn+1) % dCol) {
             // Number of cols to be sent
             // Is this the last col block?
-            int numCols = Nb;
+            int columnsToReceive = Nb;
             if (N - col < Nb)
-                numCols = N - col;
+                columnsToReceive = N - col;
+
+            int senderRank = senderProcessRow*dCol + senderProcessColumn;
  
-            if (procRow == sendRow && procCol == sendCol) {
-                // Send a nr-by-nc submatrix to process (sendr, sendc)
-                Cdgesd2d(cblacsContext, numRows, numCols, &localMatrix[receiveColumn*localRows + receiveRow], localRows, 0, 0);
-                receiveColumn = (receiveColumn + numCols) % localColumns;
+            if ((rank == senderRank) && (rank != receiverRank)) {
+                transferBlock(rowsToReceive, columnsToReceive, &localMatrix[columnOffset*localRows + rowOffset], localRows, receiverRank, 0, &sendRequests[sendIndex++]);
             }
  
-            if (rank == 0) {
-                // Receive the same data
-                // The leading dimension of the local matrix is nrows!
-                Cdgerv2d(cblacsContext, numRows, numCols, &globalMatrix[col*M + row], M, sendRow, sendCol);
+            if (rank == receiverRank) {
+                if (rank == senderRank)  /* Copy the matrix locally*/
+                    copyBlock(rowsToReceive, columnsToReceive, &localMatrix[columnOffset* localRows + rowOffset], &globalMatrix[col*M + row], localRows, M);
+                else 
+                    receiveBlock(rowsToReceive, columnsToReceive, &globalMatrix[col*M + row], M, senderRank, 0, &receiveRequests[receiveIndex++]);
             }
+
+            if (rank == senderRank) 
+                columnOffset = (columnOffset + columnsToReceive) % localColumns; 
         }
  
-        if (procRow == sendRow) 
-            receiveRow = (receiveRow + numRows) % localRows;
+        if (procRow == senderProcessRow) 
+            rowOffset = (rowOffset + rowsToReceive) % localRows;
+    }
 
-        Cblacs_barrier(cblacsContext, "All");
+    /* Trading phase over, wait for tiles */
+    for (int i = 0; i < receiveCount; i++) {
+        int idx;
+        MPI_Waitany(receiveIndex, receiveRequests, &idx, MPI_STATUS_IGNORE);
+    }
+
+    if (receiveCount > 0)
+        delete[] receiveRequests;
+    
+    if (sendCount > 0) {
+        MPI_Waitall(sendIndex, sendRequests, MPI_STATUSES_IGNORE);
+        delete[] sendRequests;
     }
 }
 
 pblasDecomposer::~pblasDecomposer()
 {
-    // free(localMatrix);
-    // Cblacs_gridexit(cblacsContext);
+
 }

@@ -61,7 +61,8 @@ int main(int argc, char* argv[])
     }
     else {
         printf("Running Pre Distributed COSMA Run (%d runs) with M=%lld, N=%lld, K=%lld and %d GPUs\n", numberOfRuns, M, N, K, size);
-        cosmaPreDistributedOptimalGemm(transposeA, transposeB, M, N, K, alpha, A, lda, B, ldb, beta, C, ldc, MPI_COMM_WORLD, numberOfRuns, logging);
+        // cosmaPreDistributedOptimalGemm(transposeA, transposeB, M, N, K, alpha, A, lda, B, ldb, beta, C, ldc, MPI_COMM_WORLD, numberOfRuns, logging);
+        cosmaPreDistributedScalapackGemm(transposeA, transposeB, M, N, K, alpha, A, lda, B, ldb, beta, C, ldc, 512, 512, MPI_COMM_WORLD, numberOfRuns, logging);
     }
     MPI_Barrier(MPI_COMM_WORLD);
     MPI_Finalize();
