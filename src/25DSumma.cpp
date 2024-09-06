@@ -1,5 +1,7 @@
 #include <25DSumma.hpp>
 // #define DEBUG
+#define STREAM_HARD_CAP 8 // maximum computation and communication overlap 
+#define GPU_MAX_MEMORY_USAGE 0.9
 
 int truncatedDivisionRemainer(int a, int b)
 {
@@ -51,9 +53,9 @@ Summa25Decomposer::Summa25Decomposer(long long M, long long N, long long K, int 
     lldc = localM;
 
     /* Allocate local pointers */
-    // localA = (double*) malloc(sizeof(double) * localM * localK);
-    // localB = (double*) malloc(sizeof(double) * localN * localK);
-    // localC = (double*) malloc(sizeof(double) * localM * localN);
+    // CUDA_CHECK(cudaMallocHost((void**)&localA, sizeof(double) * localM * localK));
+    // CUDA_CHECK(cudaMallocHost((void**)&localB, sizeof(double) * localN * localK));
+    // CUDA_CHECK(cudaMallocHost((void**)&localC, sizeof(double) * localM * localN));
     CUDA_CHECK(cudaSetDevice(0));
     CUDA_CHECK(cudaMalloc((void**)&localA, sizeof(double) * localM * localK));
     CUDA_CHECK(cudaMalloc((void**)&localB, sizeof(double) * localK * localN));
@@ -75,6 +77,47 @@ Summa25Decomposer::Summa25Decomposer(long long M, long long N, long long K, int 
         }
         printf("2.5D SUMMA Decomposer Initialized\n");
     #endif
+
+    return;
+}
+
+/* 
+    Calculate how many streams each GPU can handle. 
+    If all tiles fit in memory for every execution, maximum overlap can happen.
+    Amount of available overlap is shown via how many CUDA streams we create. We
+    can create infinite streams but most modern GPUs can handle 32 maximum. The rest will be
+    sequential. Should not utilize 100% of GPU, set a hard-cap for memory usage.
+*/
+void Summa25Decomposer::communicationComputationOverlapInit()
+{
+    int kernelsToCompute = pc3;
+    long long singleExecutionMemoryRequirements; // sizeof(localA) + sizeof(localB) + sizeof(localC)
+    singleExecutionMemoryRequirements = sizeof(double) * (localM*localK + localK*localN + localM*localN);
+    long long freeMemory, maxMemory;
+    getGPUMemoryInfo(&freeMemory, &maxMemory, 0);
+    freeMemory *= GPU_MAX_MEMORY_USAGE;
+    activeStreams = 1;
+
+    if (freeMemory >= kernelsToCompute*singleExecutionMemoryRequirements) {
+        /* Every kernel fits in memory, create as many streams as the kernels. */
+        printf("Problem fits all computations in memory\n");
+        activeStreams = kernelsToCompute;
+    }
+
+    else {
+        /* Find out the maximum numbers of streams we can create and can utilize */
+        activeStreams = freeMemory/singleExecutionMemoryRequirements;
+        if (activeStreams < 1) {
+            printf("Problem does not fit in GPUs, need to do some caching.\n");
+            activeStreams = 1;
+        }
+    }
+
+    streams = new cudaStream_t[activeStreams]; // Allocate array for streams
+    for (int i = 0; i < activeStreams; i++) {
+        cudaStreamCreate(&streams[i]);
+    }
+    /* Streams created, should I allocate memory here? */
 
     return;
 }
@@ -154,8 +197,6 @@ void Summa25Decomposer::createCommunicators()
     /* Create communicators */
     MPI_Comm_split(MPI_COMM_WORLD, processStack, rank, &commonGridCommunicator); /* Puts ranks of the same stack in a 2D-Grid */
     MPI_Comm_split(MPI_COMM_WORLD, (processColumn + processRow*dCol), rank, &commonStackCommunicator); /* Puts ranks of the same (i,j) on the same stack */
-    MPI_Comm_split(commonGridCommunicator, processRow, rank, &commonRowCommunicator); /* Puts rank of the same row of the 2D-Grid on the same communicator */
-    MPI_Comm_split(commonGridCommunicator, processColumn, rank, &commonColumnCommunicator); /* Puts rank of the same column of the 2D-Grid on the same communicator */
 
     MPI_Comm_rank(commonStackCommunicator, &commonStackRank);
 
@@ -167,13 +208,25 @@ void Summa25Decomposer::createCommunicators()
     return;
 }
 
-void Summa25Decomposer::multiply(char TransA, char TransB, double* A, double* B, double* C, double alpha, double beta)
-{   
+void Summa25Decomposer::initializeNCCL()
+{
+    if (rank == 0) ncclGetUniqueId(&uniqueId);
+    MPI_Bcast(&uniqueId, sizeof(uniqueId), MPI_BYTE, 0, MPI_COMM_WORLD);
+    ncclCommInitRank(&ncclCommunicator, size, uniqueId, rank);
+
+    /* Create the commonStackCommunicator for NCCL */
+    ncclCommSplit(ncclCommunicator, (processColumn + processRow*dCol), rank, &ncclCommonStackCommunicator, NULL);
+
+    return;
+}
+
+void Summa25Decomposer::broadcastToStack()
+{
     MPI_Request *broadcastRequests;
     int broadcastIndex = 0;
 
-    /* Skip this if c == 1 */
-    if ((c > 1) && !broadcastComplete) {
+    /* Only need to broadcast first time that multiplication happens, if matrices change then we need to do it again */
+    if (!broadcastComplete) {
         broadcastRequests = new MPI_Request[2];
         /* Go from 2D Decomposition to 2.5D -> Broadcast Aij and Bij on the common Stack Communicator */
         MPI_Ibcast(localA, localM * localK, MPI_DOUBLE, 0, commonStackCommunicator, &broadcastRequests[broadcastIndex++]);
@@ -188,17 +241,51 @@ void Summa25Decomposer::multiply(char TransA, char TransB, double* A, double* B,
         broadcastComplete = true;
     }
 
-    double beforeFirstShift = MPI_Wtime();
+    return;
+}
+
+void Summa25Decomposer::broadcastToStackNCCL()
+{   
+    /* All NCCL calls are synced */
+    ncclGroupStart();
+    ncclBroadcast(localA, localA, localM * localK, ncclDouble, 0, ncclCommonStackCommunicator, streams[0]);
+    ncclBroadcast(localB, localB, localN * localK, ncclDouble, 0, ncclCommonStackCommunicator, streams[0]);
+    ncclGroupEnd();
+
+    broadcastComplete = true;
+
+    return;
+}
+
+
+
+void Summa25Decomposer::multiplyNCCL(char TransA, char TransB, double* A, double* B, double* C, double alpha, double beta)
+{
+    /* Skip this if c == 1 or have already completed a broadcast */
+    if (c > 1) {
+        broadcastToStackNCCL();
+    }
+
+    double beforeFirstShift = MPI_Wtime(); //metric counter
+
+    /* First Shift for Aij*/
     /* Find out who is going to receive Aij. Because we are going to be using MPI_ANY_SOURCE, we need to set tags. Aij is assigned tag=0 and Bij is assigned tag=1 */
     int s = truncatedDivisionRemainer((processColumn - processRow + processStack*pc3), pc);
     int receiverRankForA = processRow*dCol + processStack*dRow*dCol + s;
-    MPI_Sendrecv_replace(localA, localM * localK, MPI_DOUBLE, receiverRankForA, 0, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-
-    /* Find out who is going to receive Bij */
+    ncclGroupStart();
+    ncclSend(localA, localM * localK, ncclDouble, receiverRankForA, ncclCommunicator, streams[0]);
+    ncclRecv(localA, localM * localK, ncclDouble, MPI_ANY_SOURCE, ncclCommunicator, streams[0]);
+    ncclGroupEnd();
+    
+    /* First shift for Bij */
     int s_dot = truncatedDivisionRemainer((processRow - processColumn + processStack*pc3), pc);
     int receiverRankForB = s_dot*dCol + processStack*dRow*dCol + processColumn;
-    MPI_Sendrecv_replace(localB, localK * localN, MPI_DOUBLE, receiverRankForB, 1, MPI_ANY_SOURCE, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-    double afterFirstShift = MPI_Wtime();
+    ncllGroupStart();
+    ncclSend(localB, localN * localK, ncclDouble, receiverRankForA, ncclCommunicator, streams[0]);
+    ncclRecv(localB, localN * localK, ncclDouble, MPI_ANY_SOURCE, ncclCommunicator, streams[0]);
+    ncclGroupEnd();
+
+    double afterFirstShift = MPI_Wtime(); //metric counter
     #ifdef DEBUG
         printf("Rank: %d will send A%d%d to P%d%d%d and B%d%d to P%d%d%d\n", rank, processRow, processColumn, processRow, s, processStack, processRow, processColumn, s_dot, processColumn, processStack);
     #endif
@@ -206,34 +293,45 @@ void Summa25Decomposer::multiply(char TransA, char TransB, double* A, double* B,
     /* Assume that matrices have arrived */
     /* If your processStack is 0, meaning that you have the original C matrix, you need to add + beta*Cij to the sum. */
     double tempBeta = (processStack == 0) ? beta : 0.00000;
-    double beforeFirstExec = MPI_Wtime();
-    // double tempBeta = 0;
+    double beforeFirstExec = MPI_Wtime(); //metric counter
     cublasDgemm(cublasContext, charToCublasTransOp(TransA), charToCublasTransOp(TransB), 
         localM, localN, localK, &alpha, localA, llda, localB, lldb, &tempBeta, localC, lldc);
-    double afterFirstExec = MPI_Wtime();
+    double afterFirstExec = MPI_Wtime(); //metric counter
     
     /* If c = p^(1/3), the algorithm should end here since we basically run 3D SUMMA. If not, then we need to compute more tiles */
     int rotationCount = 1;
+    tradeIndex = 0;
     s = (processColumn + rotationCount) % pc;
     s_dot = (processRow + rotationCount) % pc;
+    
     if (rank == 0) {
         printf("First Stage - Shift %lf Exec %lf\n", afterFirstShift-beforeFirstShift, afterFirstExec-beforeFirstExec);
     }
+    
+    /* Need to implement lookahead */
     for (int i = rotationCount; i < pc3; i++) {
-        double beforeNextShift = MPI_Wtime();
-        /* Check if any of these are in local memory */
+        double beforeNextShift = MPI_Wtime(); //metric counter
+        
         receiverRankForA = processRow*dCol + processStack*dRow*dCol + s;
-        MPI_Sendrecv_replace(localA, localM * localK, MPI_DOUBLE, receiverRankForA, 0, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
+        ncclGroupStart();
+        ncclSend(localA, localM * localK, ncclDouble, receiverRankForA, ncclCommunicator, streams[0]);
+        ncclRecv(localA, localM * localK, ncclDouble, MPI_ANY_SOURCE, ncclCommunicator, streams[0]);
+        ncclGroupEnd();
 
         receiverRankForB = s_dot*dCol + processStack*dRow*dCol + processColumn;
-        MPI_Sendrecv_replace(localB, localK * localN, MPI_DOUBLE, receiverRankForB, 1, MPI_ANY_SOURCE, 1, MPI_COMM_WORLD, MPI_STATUS_IGNORE);
-        double afterNextShift = MPI_Wtime();
+        ncllGroupStart();
+        ncclSend(localB, localN * localK, ncclDouble, receiverRankForA, ncclCommunicator, streams[0]);
+        ncclRecv(localB, localN * localK, ncclDouble, MPI_ANY_SOURCE, ncclCommunicator, streams[0]);
+        ncclGroupEnd();
+
+        double afterNextShift = MPI_Wtime(); //metric counter
+
         double tempBeta = 1.00;
-        double beforeNextExec = MPI_Wtime();
+        double beforeNextExec = MPI_Wtime(); //metric counter
         /* Calculate Cijk again - local matrices should be in GPU, else, you have to copy it before calling dgemm */
         cublasDgemm(cublasContext, charToCublasTransOp(TransA), charToCublasTransOp(TransB), 
             localM, localN, localK, &alpha, localA, llda, localB, lldb, &tempBeta, localC, lldc);
-        double afterNextExec = MPI_Wtime();
+        double afterNextExec = MPI_Wtime(); //metric counter
         #ifdef DEBUG
             printf("Rank: %d will send A%d%d to P%d%d%d and B%d%d to P%d%d%d\n", rank, processRow, processColumn, processRow, s, processStack, processRow, processColumn, s_dot, processColumn, processStack);
         #endif  
@@ -250,25 +348,129 @@ void Summa25Decomposer::multiply(char TransA, char TransB, double* A, double* B,
     reduceResult();
 
     return;
+
+}
+
+
+void Summa25Decomposer::multiply(char TransA, char TransB, double* A, double* B, double* C, double alpha, double beta)
+{   
+    MPI_Request *tradeRequests = new MPI_Request[2];
+    int tradeIndex = 0;
+
+    /* Skip this if c == 1 or have already completed a broadcast */
+    if (c > 1) {
+        broadcastToStack();
+    }
+
+    double beforeFirstShift = MPI_Wtime(); //metric counter
+
+    /* First Shift for Aij*/
+    /* Find out who is going to receive Aij. Because we are going to be using MPI_ANY_SOURCE, we need to set tags. Aij is assigned tag=0 and Bij is assigned tag=1 */
+    int s = truncatedDivisionRemainer((processColumn - processRow + processStack*pc3), pc);
+    int receiverRankForA = processRow*dCol + processStack*dRow*dCol + s;
+    MPI_Isendrecv_replace(localA, localM * localK, MPI_DOUBLE, receiverRankForA, 0, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, &tradeRequests[tradeIndex++]);
+    
+    /* First shift for Bij */
+    int s_dot = truncatedDivisionRemainer((processRow - processColumn + processStack*pc3), pc);
+    int receiverRankForB = s_dot*dCol + processStack*dRow*dCol + processColumn;
+    MPI_Isendrecv_replace(localB, localK * localN, MPI_DOUBLE, receiverRankForB, 1, MPI_ANY_SOURCE, 1, MPI_COMM_WORLD, &tradeRequests[tradeIndex++]);
+
+    /* Wait for trades, check if sync is possible with CUDA so you can call cublasDgemm before that */
+    if (tradeIndex > 0) {
+        MPI_Waitall(tradeIndex, tradeRequests, MPI_STATUSES_IGNORE);
+    }
+
+    double afterFirstShift = MPI_Wtime(); //metric counter
+    #ifdef DEBUG
+        printf("Rank: %d will send A%d%d to P%d%d%d and B%d%d to P%d%d%d\n", rank, processRow, processColumn, processRow, s, processStack, processRow, processColumn, s_dot, processColumn, processStack);
+    #endif
+
+    /* Assume that matrices have arrived */
+    /* If your processStack is 0, meaning that you have the original C matrix, you need to add + beta*Cij to the sum. */
+    double tempBeta = (processStack == 0) ? beta : 0.00000;
+    double beforeFirstExec = MPI_Wtime(); //metric counter
+    cublasDgemm(cublasContext, charToCublasTransOp(TransA), charToCublasTransOp(TransB), 
+        localM, localN, localK, &alpha, localA, llda, localB, lldb, &tempBeta, localC, lldc);
+    double afterFirstExec = MPI_Wtime(); //metric counter
+    
+    /* If c = p^(1/3), the algorithm should end here since we basically run 3D SUMMA. If not, then we need to compute more tiles */
+    int rotationCount = 1;
+    tradeIndex = 0;
+    s = (processColumn + rotationCount) % pc;
+    s_dot = (processRow + rotationCount) % pc;
+    
+    if (rank == 0) {
+        printf("First Stage - Shift %lf Exec %lf\n", afterFirstShift-beforeFirstShift, afterFirstExec-beforeFirstExec);
+    }
+    
+    /* Need to implement lookahead */
+    for (int i = rotationCount; i < pc3; i++) {
+        double beforeNextShift = MPI_Wtime(); //metric counter
+        
+        receiverRankForA = processRow*dCol + processStack*dRow*dCol + s;
+        MPI_Isendrecv_replace(localA, localM * localK, MPI_DOUBLE, receiverRankForA, 0, MPI_ANY_SOURCE, 0, MPI_COMM_WORLD, &tradeRequests[tradeIndex++]);
+
+        receiverRankForB = s_dot*dCol + processStack*dRow*dCol + processColumn;
+        MPI_Isendrecv_replace(localB, localK * localN, MPI_DOUBLE, receiverRankForB, 1, MPI_ANY_SOURCE, 1, MPI_COMM_WORLD, &tradeRequests[tradeIndex++]);
+
+        if (tradeIndex > 0) {
+            MPI_Waitall(tradeIndex, tradeRequests, MPI_STATUSES_IGNORE);
+        }
+
+        double afterNextShift = MPI_Wtime(); //metric counter
+        double tempBeta = 1.00;
+        double beforeNextExec = MPI_Wtime(); //metric counter
+        /* Calculate Cijk again - local matrices should be in GPU, else, you have to copy it before calling dgemm */
+        cublasDgemm(cublasContext, charToCublasTransOp(TransA), charToCublasTransOp(TransB), 
+            localM, localN, localK, &alpha, localA, llda, localB, lldb, &tempBeta, localC, lldc);
+        double afterNextExec = MPI_Wtime(); //metric counter
+        #ifdef DEBUG
+            printf("Rank: %d will send A%d%d to P%d%d%d and B%d%d to P%d%d%d\n", rank, processRow, processColumn, processRow, s, processStack, processRow, processColumn, s_dot, processColumn, processStack);
+        #endif  
+        if (rank == 0) {
+            printf("Next Stage - Shift %lf Exec %lf\n", afterNextShift-beforeNextShift, afterNextExec-beforeNextExec);
+        }
+
+        rotationCount++;
+        tradeIndex = 0;
+        s = (processColumn + rotationCount) % pc;
+        s_dot = (processRow + rotationCount) % pc;
+    }
+
+    /* Reduce results */
+    reduceResult();
+
+    return;
 }
 
 /*  
-    Gather C tiles to each process of common stack rank 
+    Reduce C tiles to each process of common stack rank 
     Contribute Cijk with a sum-reduction to Pij0 
     In the end, everyone should have the final version of Cij on their local memory
     Call re-order to actually get result 
 */
 void Summa25Decomposer::reduceResult()
-{   
+{
     /* Call Reduce */
-    MPI_Reduce(MPI_IN_PLACE,
+    // MPI_Reduce(MPI_IN_PLACE,
+    //     localC,
+    //     localM*localN,
+    //     MPI_DOUBLE,
+    //     MPI_SUM,
+    //     0,
+    //     commonStackCommunicator
+    // );
+
+    ncclReduce(
+        localC,
         localC,
         localM*localN,
-        MPI_DOUBLE,
-        MPI_SUM,
+        ncclDouble,
+        ncclSum,
         0,
-        commonStackCommunicator
-    );
+        ncclCommonStackCommunicator,
+        streams[0];
+    )
 
     return;
 }
@@ -333,6 +535,8 @@ Summa25Decomposer::~Summa25Decomposer()
 {
     /* Delete cuBLAS context */
     CUBLAS_CHECK(cublasDestroy(cublasContext));
+
+    /* TODO: Free streams, delete Communicators, e.t.c. */
 }
 
 void fullOffloadSumma25Dgemm(char TransA, char TransB, long long M, long long N, long long K, 

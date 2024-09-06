@@ -222,5 +222,5 @@ void pblasDecomposer::gatherMatrix(int receiverRank, double* globalMatrix, doubl
 
 pblasDecomposer::~pblasDecomposer()
 {
-
+    
 }

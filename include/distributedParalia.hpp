@@ -3,7 +3,6 @@
 
 #include <PARALiA.hpp>
 #include "2DBlockSequentialDecomposition.hpp"
-#include "2DBlockCyclicDecomposition.hpp"
 #include "cudaCommunicator.hpp"
 #include <cblas.h>
 #include <logging.hpp>

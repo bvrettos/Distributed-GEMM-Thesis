@@ -55,7 +55,7 @@ int main(int argc, char* argv[])
     ldc = M;
 
     bool logging = true;
-    bool gatherResults = true;
+    bool gatherResults = false;
     if (fullOffload) {
         printf("Running Full Offload Slate Run (%d runs) with M=%lld, N=%lld, K=%lld and %d GPUs\n", numberOfRuns, M, N, K, size);
         A = (double*) malloc(sizeof(double) * M * K);

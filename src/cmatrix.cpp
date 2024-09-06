@@ -132,20 +132,38 @@ void generateMatrixGPU(T* array, const long long size, const int deviceID)
     // Base Case: Size fits GPU memory
     curandGenerator_t generator;
 
-    T* matrix; // GPU Matrix
+    /* Check if pointer is device or host */
+    cudaPointerAttributes pointerAttributes;
+    CUDA_CHECK(cudaPointerGetAttributes(&pointerAttributes, array));
 
-    CUDA_CHECK(cudaMalloc((void **)&matrix, bytesToGenerate));
-    curandCreateGenerator(&generator, CURAND_RNG_PSEUDO_DEFAULT);
-    struct timespec dummy;
-    clock_gettime(CLOCK_REALTIME, &dummy);
-    curandSetPseudoRandomGeneratorSeed(generator, dummy.tv_nsec);
-    
-    if (typeid(T) ==  typeid(float)) curandGenerateUniform(generator, (float*) matrix, size);
-    else if (typeid(T) ==  typeid(double)) curandGenerateUniformDouble(generator, (double*) matrix, size);
+    /* If memory is already allocated in device, you can simply generate data there */
+    if (pointerAttributes.type == cudaMemoryTypeDevice) {
+        curandCreateGenerator(&generator, CURAND_RNG_PSEUDO_DEFAULT);
+        struct timespec dummy;
+        clock_gettime(CLOCK_REALTIME, &dummy);
+        curandSetPseudoRandomGeneratorSeed(generator, dummy.tv_nsec);
+        
+        if (typeid(T) ==  typeid(float)) curandGenerateUniform(generator, (float*) array, size);
+        else if (typeid(T) ==  typeid(double)) curandGenerateUniformDouble(generator, (double*) array, size);
+    }
 
-    CUDA_CHECK(cudaMemcpy(array, matrix, size, cudaMemcpyDeviceToHost)); // Copy generated matrix to host memory
+    /* If not, then generate data on GPU and then copy it back to host */
+    else if (pointerAttributes.type == cudaMemoryTypeHost) {
+        T* matrix; // GPU Matrix
 
-    CUDA_CHECK(cudaFree(matrix)); // De-allocate GPU matrix
+        CUDA_CHECK(cudaMalloc((void **)&matrix, bytesToGenerate));
+        curandCreateGenerator(&generator, CURAND_RNG_PSEUDO_DEFAULT);
+        struct timespec dummy;
+        clock_gettime(CLOCK_REALTIME, &dummy);
+        curandSetPseudoRandomGeneratorSeed(generator, dummy.tv_nsec);
+        
+        if (typeid(T) ==  typeid(float)) curandGenerateUniform(generator, (float*) matrix, size);
+        else if (typeid(T) ==  typeid(double)) curandGenerateUniformDouble(generator, (double*) matrix, size);
+
+        CUDA_CHECK(cudaMemcpy(array, matrix, size, cudaMemcpyDeviceToHost)); // Copy generated matrix to host memory
+
+        CUDA_CHECK(cudaFree(matrix)); // De-allocate GPU matrix
+    }
 
     return;
 }
@@ -178,23 +196,43 @@ void generateMatrixGPU(T* array, const long long rows, const long long columns, 
         return;
     }
 
+    /* Initialize rand generator */
     long long int size = rows*columns;
     curandGenerator_t generator;
 
-    T* matrix; // GPU Matrix
+    /* Check if pointer is device or host */
+    cudaPointerAttributes pointerAttributes;
+    CUDA_CHECK(cudaPointerGetAttributes(&pointerAttributes, array));
 
-    CUDA_CHECK(cudaMalloc((void **)&matrix, rows * columns * sizeof(T)));
-    curandCreateGenerator(&generator, CURAND_RNG_PSEUDO_DEFAULT);
-    struct timespec dummy;
-    clock_gettime(CLOCK_REALTIME, &dummy);
-    curandSetPseudoRandomGeneratorSeed(generator, dummy.tv_nsec);
+    /* If memory is already allocated in device, you can simply generate data there */
+    if (pointerAttributes.type == cudaMemoryTypeDevice) {
+        curandCreateGenerator(&generator, CURAND_RNG_PSEUDO_DEFAULT);
+        struct timespec dummy;
+        clock_gettime(CLOCK_REALTIME, &dummy);
+        curandSetPseudoRandomGeneratorSeed(generator, dummy.tv_nsec);
+        
+        if (typeid(T) ==  typeid(float)) curandGenerateUniform(generator, (float*) array, size);
+        else if (typeid(T) ==  typeid(double)) curandGenerateUniformDouble(generator, (double*) array, size);
+    }
+
+    /* If not, then generate data on GPU and then copy it back to host */
+    else if (pointerAttributes.type == cudaMemoryTypeHost) {
+        T* matrix; // GPU Matrix
+
+        CUDA_CHECK(cudaMalloc((void **)&matrix, rows * columns * sizeof(T)));
+        curandCreateGenerator(&generator, CURAND_RNG_PSEUDO_DEFAULT);
+        struct timespec dummy;
+        clock_gettime(CLOCK_REALTIME, &dummy);
+        curandSetPseudoRandomGeneratorSeed(generator, dummy.tv_nsec);
+        
+        if (typeid(T) ==  typeid(float)) curandGenerateUniform(generator, (float*) matrix, size);
+        else if (typeid(T) ==  typeid(double)) curandGenerateUniformDouble(generator, (double*) matrix, size);
+
+        CUDA_CHECK(cudaMemcpy(array, matrix, rows*columns*sizeof(T), cudaMemcpyDeviceToHost)); // Copy generated matrix to host memory
+
+        CUDA_CHECK(cudaFree(matrix)); // De-allocate GPU matrix
+    }
     
-    if (typeid(T) ==  typeid(float)) curandGenerateUniform(generator, (float*) matrix, size);
-    else if (typeid(T) ==  typeid(double)) curandGenerateUniformDouble(generator, (double*) matrix, size);
-
-    CUDA_CHECK(cudaMemcpy(array, matrix, rows*columns*sizeof(T), cudaMemcpyDeviceToHost)); // Copy generated matrix to host memory
-
-    CUDA_CHECK(cudaFree(matrix)); // De-allocate GPU matrix
     return;
 }
 
