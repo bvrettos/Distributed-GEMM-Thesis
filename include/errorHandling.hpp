@@ -46,4 +46,13 @@
         }                                                                                                              \
     } while (0)
 
+#define NCCL_CHECK(call) do {                         \
+  ncclResult_t res = call;                           \
+  if (res != ncclSuccess) {                         \
+    printf("Failed, NCCL error %s:%d '%s'\n",       \
+        __FILE__,__LINE__,ncclGetErrorString(res)); \
+    exit(EXIT_FAILURE);                             \
+  }                                                 \
+} while(0)
+
 #endif

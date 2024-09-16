@@ -22,7 +22,7 @@ void random_matrix(matrix_type& A)
 template <typename scalar_type>
 void slateFullGemmOffload(char TransA,  char TransB, const long long M, const long long N, const long long K,
   scalar_type alpha, scalar_type* A, long long int ldA, scalar_type* B, long long int ldB, scalar_type beta, scalar_type* C, long long int ldC
-  ,long mb, long nb, bool logging, bool gatherResults, int initialDataLocation)
+  ,long mb, long nb, int numberOfRuns, bool logging, bool gatherResults, int initialDataLocation)
 {
     int rank, size;
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
@@ -74,43 +74,44 @@ void slateFullGemmOffload(char TransA,  char TransB, const long long M, const lo
     if (typeid(scalar_type) == typeid(float)) tileMemorySize *= sizeof(float);
     else if (typeid(scalar_type) == typeid(double)) tileMemorySize *= sizeof(double);
     int lookahead = std::min((long long) totalDeviceTiles, freeMemory/tileMemorySize);
-    
+
     printf("Rank %d has %d total tiles. Lookahead is %d\n", rank, totalDeviceTiles, lookahead);
+    for (int i = 0; i < numberOfRuns; i++) {
+        /* Execute on GPU */
+        if (blas::get_device_count() > 0) {
+            slate::Options opts = {
+                { slate::Option::Lookahead, lookahead},
+                { slate::Option::Target, slate::Target::Devices},
+            };
 
-    /* Execute on GPU */
-    if (blas::get_device_count() > 0) {
-        slate::Options opts = {
-            { slate::Option::Lookahead, lookahead},
-            { slate::Option::Target, slate::Target::Devices},
-        };
+            /* I think that there should be barriers here (for correct times) */
+            MPI_Barrier(MPI_COMM_WORLD);
+            executionBefore = MPI_Wtime();
+            slate::gemm(alpha, matrixA, matrixB, beta, matrixC, opts);
+            MPI_Barrier(MPI_COMM_WORLD);
+            executionAfter = MPI_Wtime();
+        }
+        double gatherBefore=0, gatherAfter=0;
+        /* Result is gathered in rank = 0 */
+        if (gatherResults) {
+            gatherBefore = MPI_Wtime();
+            matrixC.gather(C, ldC);
+            gatherAfter = MPI_Wtime();
+        }
 
-        /* I think that there should be barriers here (for correct times) */
-        MPI_Barrier(MPI_COMM_WORLD);
-        executionBefore = MPI_Wtime();
-        slate::gemm(alpha, matrixA, matrixB, beta, matrixC, opts);
-        MPI_Barrier(MPI_COMM_WORLD);
-        executionAfter = MPI_Wtime();
-    }
-    double gatherBefore=0, gatherAfter=0;
-    /* Result is gathered in rank = 0 */
-    if (gatherResults) {
-        gatherBefore = MPI_Wtime();
-        matrixC.gather(C, ldC);
-        gatherAfter = MPI_Wtime();
-    }
+        if (logging) {
+            if (rank == 0) {
+                double executionTime = executionAfter - executionBefore;
+                double decompositionTime = decomposeAfter - decomposeBefore;
+                double gatherTime = gatherAfter - gatherBefore;
+                double gflops = calculateGflops(M, N, K, executionTime+decompositionTime+gatherTime);
 
-    if (logging) {
-        if (rank == 0) {
-            double executionTime = executionAfter - executionBefore;
-            double decompositionTime = decomposeAfter - decomposeBefore;
-            double gatherTime = gatherAfter - gatherBefore;
-            double gflops = calculateGflops(M, N, K, executionTime);
-
-            char csvLine[200];
-            sprintf(csvLine, "%s,%lld,%lld,%lld,%lld,%lld,%d,%d,%d,%d,%lf,%lf,%lf,%lf,%s\n",
-                            "SLATE", M, N, K, mb, nb, dRow, dCol, numberOfNodes, totalGPUs, 
-                            decompositionTime, executionTime, gatherTime, gflops, dataLocation);
-            writeLineToFile(logfile, csvLine);
+                char csvLine[200];
+                sprintf(csvLine, "%s,%lld,%lld,%lld,%lld,%lld,%d,%d,%d,%d,%lf,%lf,%lf,%lf,%s\n",
+                                "SLATE", M, N, K, mb, nb, dRow, dCol, numberOfNodes, totalGPUs, 
+                                decompositionTime, executionTime, gatherTime, gflops, dataLocation.c_str());
+                writeLineToFile(logfile, csvLine);
+            }
         }
     }
 
@@ -343,4 +344,4 @@ template void slatePreDistributedGemm<double>(char TransA,  char TransB, const l
 
 template void slateFullGemmOffload<double>(char TransA,  char TransB, const long long M, const long long N, const long long K,
   double alpha, double* A, long long int ldA, double* B, long long int ldB, double beta, double* C, long long int ldC
-  ,long mb, long nb, bool logging, bool gatherResults, int initialDataLocation);
+  ,long mb, long nb, int numberOfRuns, bool logging, bool gatherResults, int initialDataLocation);

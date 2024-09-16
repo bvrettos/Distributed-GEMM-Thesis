@@ -55,7 +55,7 @@ int main(int argc, char* argv[])
     ldc = M;
 
     bool logging = true;
-    bool gatherResults = false;
+    bool gatherResults = true;
     if (fullOffload) {
         printf("Running Full Offload Slate Run (%d runs) with M=%lld, N=%lld, K=%lld and %d GPUs\n", numberOfRuns, M, N, K, size);
         A = (double*) malloc(sizeof(double) * M * K);
@@ -68,7 +68,7 @@ int main(int argc, char* argv[])
             MatrixInit(C, M, N, 0);
         }
         /* Distribute Matrices ScaLAPACK style */
-        slateFullGemmOffload(transposeA, transposeB, M, N, K, alpha, A, lda, B, ldb, beta, C, ldc, Mb, Nb, logging, gatherResults, initialDataLocation);
+        slateFullGemmOffload(transposeA, transposeB, M, N, K, alpha, A, lda, B, ldb, beta, C, ldc, Mb, Nb, numberOfRuns, logging, gatherResults, initialDataLocation);
     }
     else {
         printf("Running Pre Distributed Slate Run (%d runs) with M=%lld, N=%lld, K=%lld and %d GPUs\n", numberOfRuns, M, N, K, size);

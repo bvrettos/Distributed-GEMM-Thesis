@@ -23,12 +23,6 @@ set (MPI_INCLUDE_DIRS ${MPI_PREFIX}/include)
 set (MPI_LD ${MPI_PREFIX}/lib)
 set (MPI_LINK "-lmpi -L${MPI_LD}")
 
-# # Set MPI Stuff
-# set (NVHPC_MPI_PREFIX $ENV{EBROOTOPENMPI})
-# set (NVHPC_MPI_INCLUDE_DIRS ${NVHPC_MPI_PREFIX}/include)
-# set (NVHPC_MPI_LD ${NVHPC_MPI_PREFIX}/lib)
-# set (NVHPC_MPI_LINK "-lmpi -L${MPI_LD}")
-
 # Set PARALiA Stuff
 set (PARALIA_PREFIX $ENV{PARALIA_PATH})
 set (PARALIA_LINK "-L${PARALIA_PREFIX}/lib -lparalia -lautotuner -lcaching -lchl_grid_amalgamation -lchl_smart_wrappers")
@@ -119,12 +113,12 @@ add_executable(cudaAwareMpi
 )
 
 add_executable(summa25D
-    src/25DSumma.cpp src/summa25Dtest.cpp src/cmatrix.cpp src/transfers.cpp src/generalUtilities.cpp src/validation.cpp
+    src/25DCannon.cpp src/25DCannonNCCL.cpp src/summa25Dtest.cpp src/cmatrix.cpp src/transfers.cpp src/generalUtilities.cpp src/validation.cpp
     src/logging.cpp
 )
 
 add_executable(cublas25DBenchmark
-    src/25DSumma.cpp src/cuBLAS25Benchmark.cpp src/cmatrix.cpp src/transfers.cpp src/generalUtilities.cpp src/validation.cpp
+    src/25DCannon.cpp src/25DCannonNCCL.cpp  src/cuBLAS25Benchmark.cpp src/cmatrix.cpp src/transfers.cpp src/generalUtilities.cpp src/validation.cpp
     src/logging.cpp
 )
 

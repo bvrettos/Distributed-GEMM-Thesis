@@ -34,6 +34,6 @@ void slatePreDistributedGemm(char TransA,  char TransB, const long long M, const
 template <typename scalar_type>
 void slateFullGemmOffload(char TransA,  char TransB, const long long M, const long long N, const long long K,
   scalar_type alpha, scalar_type* A, long long int ldA, scalar_type* B, long long int ldB, scalar_type beta, scalar_type* C, long long int ldC
-  ,long mb, long nb, bool logging, bool gatherResults, int initialDataLocation);
+  ,long mb, long nb,int numberOfRuns, bool logging, bool gatherResults, int initialDataLocation);
 
 #endif

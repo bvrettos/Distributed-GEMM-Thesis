@@ -1,5 +1,7 @@
 #include <transfers.hpp>
 
+// #define DEBUG
+
 std::map<std::tuple<long, long, long>, MPI_Datatype*> datatypeCache;
 
 /* 
@@ -98,7 +100,6 @@ void copyBlock(long long rows, long long columns, T* sourcePointer, T* destinati
         copyDirection = cudaMemcpyHostToDevice;
     else if (sourceAttributes.type == cudaMemoryTypeDevice && destinationAttributes.type == cudaMemoryTypeHost)
         copyDirection = cudaMemcpyDeviceToHost;
-    /* TODO: Add managed memory support */
     
     if (!columnMajor)
         std::swap(rows, columns);

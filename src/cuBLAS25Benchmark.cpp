@@ -1,4 +1,4 @@
-#include <25DSumma.hpp>
+#include <25DCannon.hpp>
 
 int main(int argc, char* argv[])
 {
@@ -56,7 +56,7 @@ int main(int argc, char* argv[])
     ldc = M;
 
     bool logging = true;
-    bool gatherResults = true;
+    bool gatherResults = false;
 
     if (fullOffload) {
         printf("Running Full Offload 2.5D SUMMA cuBLAS Run (%d runs) with M=%lld, N=%lld, K=%lld and %d GPUs\n", numberOfRuns, M, N, K, size);
@@ -69,12 +69,14 @@ int main(int argc, char* argv[])
             MatrixInit(B, K, N, 0);
             MatrixInit(C, M, N, 0);
         }
-        fullOffloadSumma25Dgemm(transposeA, transposeB, M, N, K, alpha, A, lda, B, ldb, beta, C, ldc, dRow, dCol, c, numberOfRuns, logging, gatherResults);
+        fullOffloadSumma25Dgemm(transposeA, transposeB, M, N, K, alpha, A, lda, B, ldb, beta, C, ldc, dRow, dCol, c, numberOfRuns, logging, true);
     }
     else {
         printf("Running Pre Distributed 2.5D SUMMA cuBLAS Run (%d runs) with M=%lld, N=%lld, K=%lld and %d GPUs\n", numberOfRuns, M, N, K, size);
+        // preDistributedCannon25NCCL(transposeA, transposeB, M, N, K, alpha, A, lda, B, ldb, beta, C, ldc, dRow, dCol, c, numberOfRuns, logging, gatherResults);
         preDistributedSumma25Dgemm(transposeA, transposeB, M, N, K, alpha, A, lda, B, ldb, beta, C, ldc, dRow, dCol, c, numberOfRuns, logging, gatherResults);
     }
+
     MPI_Barrier(MPI_COMM_WORLD);
     MPI_Finalize();
 }
