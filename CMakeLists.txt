@@ -14,8 +14,8 @@ set (CUDA_LD ${CUDA_PREFIX}/lib64) # or /lib depending on system
 set (CUDA_LINK "-L${CUDA_LD} -lcublas -lcurand -lcuda -lcudart -lcusolver -lrt")
 set (CUDA_INCLUDE_DIRS ${CUDA_PREFIX}/include ${CUDA_PREFIX}/samples/common/inc)
 set (CMAKE_CUDA_COMPILER ${CUDA_PREFIX}/bin/nvcc)
-set(CMAKE_C_COMPILER ${CMAKE_CUDA_COMPILER})
-set(CMAKE_CXX_COMPILER ${CMAKE_CUDA_COMPILER})
+set (CMAKE_C_COMPILER ${CMAKE_CUDA_COMPILER})
+set (CMAKE_CXX_COMPILER ${CMAKE_CUDA_COMPILER})
 
 # Set MPI Stuff
 set (MPI_PREFIX $ENV{OPENMPI_PATH})
@@ -94,112 +94,96 @@ include_directories(
     include
 )
 
+###########################################################################################
+#--------------------------- Utilities and Custom Libraries ------------------------------#
+###########################################################################################
+
+add_library(tranfers OBJECT mpiTransfers.cpp ncclTransfers.cpp sharedTransfers.cpp)
+add_library(utilities OBJECT logging.cpp validation.cpp generalUtilities.cpp errorHandling.cpp cmatrix.cpp)
+
 #######################################################################################
 #--------------------------- WorkInProgress Executables ------------------------------#
 #######################################################################################
 
-# add_executable(pblasGEMM
-#     src/pblasGEMM.cpp src/pblasDecomposition.cpp
-#     src/cmatrix.cpp src/validation.cpp src/cudaCommunicator.cpp src/generalUtilities.cpp
-# )
-
-add_executable(sequentialDecomposerTest
-    src/sequentialDecomposerTest.cpp src/2DBlockSequentialDecomposition.cpp src/cmatrix.cpp
-    src/transfers.cpp  src/generalUtilities.cpp
-)
-
-add_executable(cudaAwareMpi
-    src/cudaAwareMpi.cpp
-)
-
-add_executable(summa25D
-    src/25DCannon.cpp src/25DCannonNCCL.cpp src/summa25Dtest.cpp src/cmatrix.cpp src/transfers.cpp src/generalUtilities.cpp src/validation.cpp
-    src/logging.cpp
+add_executable(cannon25D
+    src/25DCannon.cpp src/25DCannonNCCL.cpp src/summa25Dtest.cpp
 )
 
 add_executable(cublas25DBenchmark
-    src/25DCannon.cpp src/25DCannonNCCL.cpp  src/cuBLAS25Benchmark.cpp src/cmatrix.cpp src/transfers.cpp src/generalUtilities.cpp src/validation.cpp
-    src/logging.cpp
+    src/25DCannon.cpp src/25DCannonNCCL.cpp  src/cuBLAS25Benchmark.cpp
 )
 
-# target_link_libraries(pblasGEMM ${MPI_LINK} ${OPENBLAS_LINK} ${SCALAPACK_LINK} ${CUDA_LINK})
-target_link_libraries(sequentialDecomposerTest ${MPI_LINK} ${CUDA_LINK})
-target_link_libraries(cudaAwareMpi ${MPI_LINK} ${CUDA_LINK})
-target_link_libraries(summa25D ${MPI_LINK} ${CUDA_LINK} ${OPENBLAS_LINK} ${NCCL_LINK})
-target_link_libraries(cublas25DBenchmark ${MPI_LINK} ${CUDA_LINK} ${OPENBLAS_LINK} ${NCCL_LINK})
+target_link_libraries(summa25D ${MPI_LINK} ${CUDA_LINK} ${OPENBLAS_LINK} ${NCCL_LINK} utilities transfers)
+target_link_libraries(cublas25DBenchmark ${MPI_LINK} ${CUDA_LINK} ${OPENBLAS_LINK} ${NCCL_LINK} utilities transfers)
 
-# #######################################################################################
-# #--------------------------- PARALiA Executables ------------------------------------#
-# #######################################################################################
+if (BUILD_PARALIA_APPS)
+    # #######################################################################################
+    # #--------------------------- PARALiA Executables ------------------------------------#
+    # #######################################################################################
+    add_executable(singleNodeParaliaBenchmark
+        src/singleNodeParaliaBenchmark.cpp src/paraliaWrappers.cpp 
+    )
 
-add_executable(singleNodeParaliaBenchmark
-    src/singleNodeParaliaBenchmark.cpp src/paraliaWrappers.cpp src/cmatrix.cpp src/logging.cpp
-    src/generalUtilities.cpp
-)
+    add_executable(distributedParaliaBenchmark
+        src/distributedParaliaBenchmark.cpp src/distributedParalia.cpp
+    )
 
-add_executable(distributedParaliaBenchmark
-    src/distributedParaliaBenchmark.cpp src/distributedParalia.cpp src/cmatrix.cpp src/logging.cpp
-    src/generalUtilities.cpp src/2DBlockSequentialDecomposition.cpp src/transfers.cpp
-)
+    add_executable(distributedParaliaValidators
+        src/distributedParaliaValidators.cpp src/distributedParalia.cpp
+    )
 
-add_executable(distributedParaliaValidators
-    src/distributedParaliaValidators.cpp src/distributedParalia.cpp src/cmatrix.cpp src/logging.cpp
-    src/generalUtilities.cpp src/2DBlockSequentialDecomposition.cpp src/transfers.cpp
-)
-
-target_link_libraries(singleNodeParaliaBenchmark ${PARALIA_LINK} ${CUDA_LINK} ${NUMACTL_LINK})
-target_link_libraries(distributedParaliaBenchmark ${PARALIA_LINK} ${MPI_LINK} ${CUDA_LINK} ${NUMACTL_LINK} ${OPENBLAS_LINK})
-target_link_libraries(distributedParaliaValidators ${PARALIA_LINK} ${MPI_LINK} ${CUDA_LINK} ${NUMACTL_LINK} ${OPENBLAS_LINK})
-
+    target_link_libraries(singleNodeParaliaBenchmark ${PARALIA_LINK} ${CUDA_LINK} ${NUMACTL_LINK} utilities transfers)
+    target_link_libraries(distributedParaliaBenchmark ${PARALIA_LINK} ${MPI_LINK} ${CUDA_LINK} ${NUMACTL_LINK} ${OPENBLAS_LINK} utilities transfers)
+    target_link_libraries(distributedParaliaValidators ${PARALIA_LINK} ${MPI_LINK} ${CUDA_LINK} ${NUMACTL_LINK} ${OPENBLAS_LINK} utilities transfers)
+endif()
 
 #######################################################################################
 #--------------------------- cuBLASMp Executables ------------------------------------#
 #######################################################################################
-add_executable(cublasmpBenchmark
-    src/cuBLASMpBenchmark.cpp src/cuBLASMpWrapped.cpp 
-    src/pblasDecomposition.cpp src/cudaCommunicator.cpp src/calSetup.cpp
-    src/cmatrix.cpp src/logging.cpp src/generalUtilities.cpp src/transfers.cpp
-)
 
-add_executable(cublasmpValidator
-    src/cuBLASMpValidator.cpp src/cuBLASMpWrapped.cpp 
-    src/pblasDecomposition.cpp src/cudaCommunicator.cpp src/calSetup.cpp
-    src/validation.cpp src/cmatrix.cpp src/logging.cpp src/generalUtilities.cpp
-    src/transfers.cpp
-)
+if (BUILD_CUBLASMP_APPS)
+    add_executable(cublasmpBenchmark
+        src/cuBLASMpBenchmark.cpp src/cuBLASMpWrapped.cpp 
+        src/pblasDecomposition.cpp src/cudaCommunicator.cpp src/calSetup.cpp
+    )
 
-target_link_libraries(cublasmpBenchmark ${MPI_LINK} ${OPENBLAS_LINK} ${CAL_LINK} ${CUBLASMP_LINK} ${CUDA_LINK} ${SCALAPACK_LINK})
-target_link_libraries(cublasmpValidator ${MPI_LINK} ${OPENBLAS_LINK} ${CAL_LINK} ${CUBLASMP_LINK} ${CUDA_LINK} ${SCALAPACK_LINK})
+    add_executable(cublasmpValidator
+        src/cuBLASMpValidator.cpp src/cuBLASMpWrapped.cpp 
+        src/pblasDecomposition.cpp src/cudaCommunicator.cpp src/calSetup.cpp
+    )
+
+    target_link_libraries(cublasmpBenchmark ${MPI_LINK} ${OPENBLAS_LINK} ${CAL_LINK} ${CUBLASMP_LINK} ${CUDA_LINK} ${SCALAPACK_LINK} utilities transfers)
+    target_link_libraries(cublasmpValidator ${MPI_LINK} ${OPENBLAS_LINK} ${CAL_LINK} ${CUBLASMP_LINK} ${CUDA_LINK} ${SCALAPACK_LINK} utilities transfers)
+endif()
 
 ##################################################################################
 #---------------------------SLATE Executables------------------------------------#
 ##################################################################################
-add_executable(slateBenchmark
-    src/slateBenchmark.cpp src/validation.cpp src/cmatrix.cpp src/cudaCommunicator.cpp src/slateWrapped.cpp
-    src/logging.cpp src/generalUtilities.cpp
-)
-
-add_executable(slateValidator
-    src/slateValidator.cpp src/validation.cpp src/cmatrix.cpp src/cudaCommunicator.cpp src/slateWrapped.cpp
-    src/logging.cpp src/generalUtilities.cpp
-)
-
-# target_compile_options(slateBenchmark PRIVATE -fopenmp)
-target_link_libraries(slateValidator ${MPI_LINK} ${OPENBLAS_LINK} ${SLATE_LINK} ${CUDA_LINK} ${SCALAPACK_LINK})
-target_link_libraries(slateBenchmark ${MPI_LINK} ${OPENBLAS_LINK} ${SLATE_LINK} ${CUDA_LINK} ${SCALAPACK_LINK})
+if (BUILD_SLATE_APPS)
+    add_executable(slateBenchmark
+        src/slateBenchmark.cpp src/cudaCommunicator.cpp src/slateWrapped.cpp
+    )
+    add_executable(slateValidator
+        src/slateValidator.cpp src/cudaCommunicator.cpp src/slateWrapped.cpp
+    )
+    target_link_libraries(slateValidator ${MPI_LINK} ${OPENBLAS_LINK} ${SLATE_LINK} ${CUDA_LINK} ${SCALAPACK_LINK} utilities transfers)
+    target_link_libraries(slateBenchmark ${MPI_LINK} ${OPENBLAS_LINK} ${SLATE_LINK} ${CUDA_LINK} ${SCALAPACK_LINK} utilities transfers)
+endif()
 
 ##################################################################################
 #---------------------------COSMA Executables------------------------------------#
 ##################################################################################
-add_executable(cosmaBenchmark
-    src/cosmaBenchmark.cpp src/validation.cpp src/cmatrix.cpp src/cosmaWrapped.cpp src/generalUtilities.cpp
-    src/validation.cpp src/cudaCommunicator.cpp src/logging.cpp src/pblasDecomposition.cpp src/transfers.cpp
-)
+if (BUILD_COSMA_APPS)
+    add_executable(cosmaBenchmark
+        src/cosmaBenchmark.cpp src/validation.cpp src/cmatrix.cpp src/cosmaWrapped.cpp src/generalUtilities.cpp
+        src/validation.cpp src/cudaCommunicator.cpp src/logging.cpp src/pblasDecomposition.cpp src/transfers.cpp
+    )
 
-add_executable(cosmaValidators
-    src/cosmaValidators.cpp src/validation.cpp src/cmatrix.cpp src/cosmaWrapped.cpp src/generalUtilities.cpp
-    src/validation.cpp src/cudaCommunicator.cpp src/logging.cpp src/pblasDecomposition.cpp src/transfers.cpp
-)
+    add_executable(cosmaValidators
+        src/cosmaValidators.cpp src/validation.cpp src/cmatrix.cpp src/cosmaWrapped.cpp src/generalUtilities.cpp
+        src/validation.cpp src/cudaCommunicator.cpp src/logging.cpp src/pblasDecomposition.cpp src/transfers.cpp
+    )
 
-target_link_libraries(cosmaBenchmark ${MPI_LINK} ${COSMA_LINK} ${CUDA_LINK} ${SCALAPACK_LINK} ${NCCL_LINK} ${OPENBLAS_LINK})
-target_link_libraries(cosmaValidators ${MPI_LINK} ${COSMA_LINK} ${CUDA_LINK} ${SCALAPACK_LINK} ${NCCL_LINK} ${OPENBLAS_LINK})
+    target_link_libraries(cosmaBenchmark ${MPI_LINK} ${COSMA_LINK} ${CUDA_LINK} ${SCALAPACK_LINK} ${NCCL_LINK} ${OPENBLAS_LINK} utilities transfers)
+target_link_libraries(cosmaValidators ${MPI_LINK} ${COSMA_LINK} ${CUDA_LINK} ${SCALAPACK_LINK} ${NCCL_LINK} ${OPENBLAS_LINK} utilities transfers)
+endif()

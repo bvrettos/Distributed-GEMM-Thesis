@@ -97,3 +97,21 @@ void getGPUMemoryInfo(long long *freeMemory, long long *maxMemory, const int dev
 
     return;
 }
+
+double csecond(void) {
+  struct timespec tms;
+
+  if (clock_gettime(CLOCK_REALTIME, &tms)) {
+    return (0.0);
+  }
+  /// seconds, multiplied with 1 million
+  int64_t micros = tms.tv_sec * 1000000;
+  /// Add full microseconds
+  micros += tms.tv_nsec / 1000;
+  /// round up if necessary
+  if (tms.tv_nsec % 1000 >= 500) {
+    ++micros;
+  }
+  
+  return ((double)micros / 1000000.0);
+}
