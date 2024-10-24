@@ -13,8 +13,7 @@
 
 int getMaxGPUs();
 void getLocalDevice(int* localRank, int* deviceCount, int* localDeviceID);
-void calculateProcessGrid(int *dRow, int *dCol, int deviceCount);
-MPI_Comm createGPUCommunicator();
+void createGPUCommunicator(MPI_Comm* gpuCommunicator);
 bool checkCudaAwareMPI();
 
 #endif

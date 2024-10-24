@@ -1,9 +1,15 @@
 #ifndef CMATRIX_H
 #define CMATRIX_H
 
+#include <cstdio>
 #include <iostream>
 #include <string>
 #include <fstream>
+#include <cstring>
+#include <type_traits>
+#include <memory>
+#include <utility>
+#include <algorithm>
 
 #include <cuda.h>
 #include <cuda_runtime.h>
@@ -12,12 +18,7 @@
 #include <time.h>
 #include "errorHandling.hpp"
 #include "generalUtilities.hpp"
-
-#include <cstring>
-#include <type_traits>
-#include <memory>
-#include <utility>
-#include <algorithm>
+#include "Enums.hpp"
 
 /* Print related functions */
 void printMatrix(double *array, const long long rows,  const long long columns, int rank);
