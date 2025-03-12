@@ -1,39 +1,5 @@
 #include "cudaCommunicator.hpp"
 
-void calculateProcessGrid(int *dRow, int *dCol , int deviceCount)
-{
-    int Px = std::sqrt(deviceCount);
-    int Py = Px;
-
-    /* If less than 4 devices */
-    if (Px == 0) {
-        Py = deviceCount;
-        Px = 1;
-    }
-    /* If more than 4 devices, find the most square decomposition */
-    int counter;
-    for (counter = Px; counter > 0; --counter) 
-        if (deviceCount % counter == 0) break;
-    
-    if (counter==0) {
-        Px = deviceCount;
-        Py = 1;
-    }
-    else {
-        Px = counter;
-        Py = deviceCount/counter;
-    }
-
-    *dRow = Py;
-    *dCol = Px;
-
-    #ifdef DEBUG
-        printf("dRow: %d - dCol: %d\n", *dRow, *dCol);
-    #endif
-
-    return;
-}
-
 void getLocalDevice(int* localRank, int* deviceCount, int* localDeviceID)
 {
     MPI_Comm localCommunicator;
@@ -76,7 +42,7 @@ int getMaxGPUs()
     return allDevices;
 }
 
-MPI_Comm createGPUCommunicator()
+void createGPUCommunicator(MPI_Comm* gpuCommunicator)
 {
     MPI_Comm localCommunicator;
     int localSize, localRank, localDeviceSize, localDeviceRank;
@@ -89,6 +55,8 @@ MPI_Comm createGPUCommunicator()
     MPI_Comm_group(localCommunicator, &localGroup);
 
     CUDA_CHECK(cudaGetDeviceCount(&localDeviceSize));
+
+    /* Need to handle if numProcs is less than GPU size (meaning some GPUs are handled by same process - or remove them completely) */
 
     int deviceGroupRanks[localDeviceSize];
     for (int i = 0; i < localDeviceSize; i++) {
@@ -111,7 +79,9 @@ MPI_Comm createGPUCommunicator()
 
     MPI_Comm_free(&localCommunicator);  
 
-    return deviceCommunicator;
+    *gpuCommunicator = deviceCommunicator;
+
+    return;
 }
 
 bool checkCudaAwareMPI()

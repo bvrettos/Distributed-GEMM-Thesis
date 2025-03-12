@@ -38,7 +38,7 @@ void copyBlock(long long rows, long long columns, T* sourcePointer, T* destinati
     int blockSize = rows * columns;
     if (blockSize <= 0) return;
 
-    cudaMemcpyKind copyDirect = findMemcpyKind(sourcePointer, destinationPointer);
+    cudaMemcpyKind copyDirection = findMemcpyKind(sourcePointer, destinationPointer);
     
     if (!columnMajor)
         std::swap(rows, columns);
@@ -62,7 +62,7 @@ void copyBlock(long long rows, long long columns, T* sourcePointer, T* destinati
     return;
 }
 
-void memcpy2D(void* sourcePointer, long long ldSource, void* destinationPointer, long long ldDestination, long long rows, long long columns, size_t elementSize, bool colMajor)
+void memcpy2D(void* sourcePointer, long long ldSource, void* destinationPointer, long long ldDestination, long long rows, long long columns, size_t elementSize, bool columnMajor)
 {
 
     /* Check if pointers are valid */
@@ -74,8 +74,8 @@ void memcpy2D(void* sourcePointer, long long ldSource, void* destinationPointer,
     if (!columnMajor)
         std::swap(rows, columns);
 
-    cudaMemcpyKind = findMemcpyKind(sourcePointer, destinationPointer);
-    CUDA_CHECK(cudaMemcpy2D(destinationPointer, ldDestination*elementSize, sourcePointer, ldSource*elementSize, rows*elementSize, columns, cudaMemcpyKind));
+    cudaMemcpyKind copyDirection = findMemcpyKind(sourcePointer, destinationPointer);
+    CUDA_CHECK(cudaMemcpy2D(destinationPointer, ldDestination*elementSize, sourcePointer, ldSource*elementSize, rows*elementSize, columns, copyDirection));
 
     return;
 }
@@ -86,9 +86,3 @@ template void copy<float>(size_t size, const float* sourcePointer, float* destin
 
 template void copyBlock<double>(long long rows, long long columns, double* sourcePointer, double* destinationPointer, const long long ldSource, const long long ldDestination, bool columnMajor);
 template void copyBlock<float>(long long rows, long long columns, float* sourcePointer, float* destinationPointer, const long long ldSource, const long long ldDestination, bool columnMajor);
-
-template void transferBlock<float>(long long rows, long long columns, float* sourcePointer, const long long stride, const int destinationRank, int tag, MPI_Request* requestHandle, bool colMajor);
-template void transferBlock<double>(long long rows, long long columns, double* sourcePointer, const long long stride, const int destinationRank, int tag, MPI_Request* requestHandle, bool colMajor);
-
-template void receiveBlock<float>(long long rows, long long columns, float* destinationPointer, const long long stride, const int sourceRank, int tag, MPI_Request* requestHandle, bool colMajor);
-template void receiveBlock<double>(long long rows, long long columns, double* destinationPointer, const long long stride, const int sourceRank, int tag, MPI_Request* requestHandle, bool colMajor);

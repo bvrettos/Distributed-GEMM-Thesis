@@ -7,6 +7,7 @@ project(MPI-CUDA LANGUAGES C CXX CUDA)
 # Set C++ standard (optional)
 set(CMAKE_CUDA_STANDARD 14)
 set(CMAKE_CUDA_STANDARD_REQUIRED ON)
+include(CTest)
 
 # Set CUDA Stuff
 set (CUDA_PREFIX $ENV{CUDA_PATH})
@@ -67,7 +68,18 @@ set (COSMA_LINK "-L${COSMA_PREFIX}/lib64 -lTiled-MM -lcosma -lcosta -lgomp")
 
 set (NCCL_PREFIX $ENV{NCCL_PATH})
 set (NCCL_INCLUDE_DIRS ${NCCL_PREFIX}/include)
-set (NCCL_LINK "-L{NCCL_PREFIX}/lib -lnccl")
+set (NCCL_LINK "-L${NCCL_PREFIX}/lib -lnccl")
+
+# Testing STUFF
+
+set (CATCH2_PREFIX $ENV{CATCH2_PATH})
+set (CATCH2_INCLUDE_DIRS ${CATCH2_PREFIX}/include)
+set (CATCH2_LINK "-L${CATCH2_PREFIX}/lib -lCatch2")
+
+set (CXXOPTS_PREFIX $ENV{CXXOPTS_PATH})
+set (CXXOPTS_INCLUDE_DIRS ${CXXOPTS_PREFIX}/include)
+
+
 
 ################################################################################################
 #---------------------------Settings and Tunable Parameters------------------------------------#
@@ -78,6 +90,7 @@ add_definitions(-DDTYPE_NUM=3)
 add_definitions(-DREDUCE_WORKERS_PERDEV=10)
 add_definitions(-DPROBLEM_MD_CACHE=100) # Only relevant for "PROBLEMS" reuse level
 add_definitions(-DMACHINE_NAME="meluxina")
+# add_definitions(-DMACHINE_NAME="silver1")
 
 include_directories(
     ${CUDA_INCLUDE_DIRS}
@@ -91,6 +104,8 @@ include_directories(
     ${SLATE_INCLUDE_DIRS}
     ${COSMA_INCLUDE_DIRS}
     ${NCCL_INCLUDE_DIRS}
+    ${CATCH2_INCLUDE_DIRS}
+    ${CXXOPTS_INCLUDE_DIRS}
     include
 )
 
@@ -98,23 +113,36 @@ include_directories(
 #--------------------------- Utilities and Custom Libraries ------------------------------#
 ###########################################################################################
 
-add_library(tranfers OBJECT mpiTransfers.cpp ncclTransfers.cpp sharedTransfers.cpp)
-add_library(utilities OBJECT logging.cpp validation.cpp generalUtilities.cpp errorHandling.cpp cmatrix.cpp)
+add_library(transfers OBJECT src/Transfers/mpiTransfers.cpp src/Transfers/sharedTransfers.cpp)
+
+
+add_library(utilities OBJECT src/Utilities/Logging.cpp src/Utilities/Validation.cpp src/Utilities/GeneralUtilities.cpp src/Utilities/errorHandling.cpp src/Utilities/cmatrix.cpp src/Utilities/cudaCommunicator.cpp)
+
+
+add_library(distributedMatrix OBJECT src/DistributedMatrix/Tile.cpp src/DistributedMatrix/DistributedMatrix.cpp src/DistributedMatrix/Distributions.cpp 
+    src/DistributedMatrix/LAPACK-Compatability.cpp src/DistributedMatrix/TileTransfers.cpp src/DistributedMatrix/ProcessGrids.cpp src/DistributedMatrix/TileTransfersNCCL.cpp src/Utilities/MatrixUtilities.cpp src/Utilities/GeneralUtilities.cpp src/BLAS/scale.cpp)
+
+target_link_libraries(distributedMatrix ${OPENBLAS_LINK} ${MPI_LINK} ${NCCL_LINK} ${CUDA_LINK})
+
+add_executable(summaValidator
+    src/summaValidator.cpp src/Utilities/cudaCommunicator.cpp
+)
+
+target_link_libraries(summaValidator distributedMatrix)
 
 #######################################################################################
 #--------------------------- WorkInProgress Executables ------------------------------#
 #######################################################################################
+# add_executable(cannon25D
+#     src/25DCannon.cpp src/25DCannonNCCL.cpp src/Tests/summa25Dtest.cpp
+# )
 
-add_executable(cannon25D
-    src/25DCannon.cpp src/25DCannonNCCL.cpp src/summa25Dtest.cpp
-)
+# add_executable(cublas25DBenchmark
+#     src/25DCannon.cpp src/25DCannonNCCL.cpp  src/Benchmarks/cuBLAS25Benchmark.cpp
+# )
 
-add_executable(cublas25DBenchmark
-    src/25DCannon.cpp src/25DCannonNCCL.cpp  src/cuBLAS25Benchmark.cpp
-)
-
-target_link_libraries(summa25D ${MPI_LINK} ${CUDA_LINK} ${OPENBLAS_LINK} ${NCCL_LINK} utilities transfers)
-target_link_libraries(cublas25DBenchmark ${MPI_LINK} ${CUDA_LINK} ${OPENBLAS_LINK} ${NCCL_LINK} utilities transfers)
+# target_link_libraries(cannon25D ${MPI_LINK} ${CUDA_LINK} ${OPENBLAS_LINK} ${NCCL_LINK} utilities transfers)
+# target_link_libraries(cublas25DBenchmark ${MPI_LINK} ${CUDA_LINK} ${OPENBLAS_LINK} ${NCCL_LINK} utilities transfers)
 
 if (BUILD_PARALIA_APPS)
     # #######################################################################################
@@ -187,3 +215,12 @@ if (BUILD_COSMA_APPS)
     target_link_libraries(cosmaBenchmark ${MPI_LINK} ${COSMA_LINK} ${CUDA_LINK} ${SCALAPACK_LINK} ${NCCL_LINK} ${OPENBLAS_LINK} utilities transfers)
 target_link_libraries(cosmaValidators ${MPI_LINK} ${COSMA_LINK} ${CUDA_LINK} ${SCALAPACK_LINK} ${NCCL_LINK} ${OPENBLAS_LINK} utilities transfers)
 endif()
+
+
+##################################################################################
+#---------------------------Library Tests ---------------------------------------#
+##################################################################################
+
+add_executable(tileTests tests/tileTests.cpp)
+target_link_libraries(tileTests PRIVATE ${MPI_LINK} ${CUDA_LINK} ${NCCL_LINK} distributedMatrix ${CATCH2_LINK})
+add_test(NAME tileTests COMMAND tileTests)
