@@ -118,18 +118,6 @@ add_library(transfers OBJECT src/Transfers/mpiTransfers.cpp src/Transfers/shared
 
 add_library(utilities OBJECT src/Utilities/Logging.cpp src/Utilities/Validation.cpp src/Utilities/GeneralUtilities.cpp src/Utilities/errorHandling.cpp src/Utilities/cmatrix.cpp src/Utilities/cudaCommunicator.cpp)
 
-
-add_library(distributedMatrix OBJECT src/DistributedMatrix/Tile.cpp src/DistributedMatrix/DistributedMatrix.cpp src/DistributedMatrix/Distributions.cpp 
-    src/DistributedMatrix/LAPACK-Compatability.cpp src/DistributedMatrix/TileTransfers.cpp src/DistributedMatrix/ProcessGrids.cpp src/DistributedMatrix/TileTransfersNCCL.cpp src/Utilities/MatrixUtilities.cpp src/Utilities/GeneralUtilities.cpp src/BLAS/scale.cpp)
-
-target_link_libraries(distributedMatrix ${OPENBLAS_LINK} ${MPI_LINK} ${NCCL_LINK} ${CUDA_LINK})
-
-add_executable(summaValidator
-    src/summaValidator.cpp src/Utilities/cudaCommunicator.cpp
-)
-
-target_link_libraries(summaValidator distributedMatrix)
-
 #######################################################################################
 #--------------------------- WorkInProgress Executables ------------------------------#
 #######################################################################################
@@ -220,7 +208,3 @@ endif()
 ##################################################################################
 #---------------------------Library Tests ---------------------------------------#
 ##################################################################################
-
-add_executable(tileTests tests/tileTests.cpp)
-target_link_libraries(tileTests PRIVATE ${MPI_LINK} ${CUDA_LINK} ${NCCL_LINK} distributedMatrix ${CATCH2_LINK})
-add_test(NAME tileTests COMMAND tileTests)
