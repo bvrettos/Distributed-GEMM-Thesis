@@ -5,7 +5,7 @@ void singleNodeParaliaGemm(char TransA, char TransB, const long long M, const lo
     scalar_t* B, long long int ldB, scalar_t beta, scalar_t* C, long long ldC, int numberOfRuns, bool logging, int aLoc, int bLoc, int cLoc)
 {   
     FILE* logfile;
-    /* No need for MPI initializations or rank, size. Just a simple PARALiA wrapper */
+    /* No need for MPI initializations or rank, size getters. Just a simple PARALiA wrapper */
     if (logging) {
         std::string machineName = MACHINE_NAME;
         std::string filename = "DGEMM_execution_logs-PreDistributed_GEMM-" + machineName + "-PARALiA.csv";
@@ -38,7 +38,7 @@ void singleNodeParaliaGemm(char TransA, char TransB, const long long M, const lo
                 "PARALiA", M, N, K, 4, executionTime, gflops, aLoc, bLoc, cLoc);
             writeLineToFile(logfile, csvLine);
         }
-    }   
+    }
     
     for (int i = 0; i < CHL_MEMLOCS; i++) PARALiADevCacheFree((i));
 

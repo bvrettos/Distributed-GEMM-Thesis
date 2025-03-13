@@ -11,17 +11,7 @@
 #include <cudaCommunicator.hpp>
 #include <transfers.hpp>
 
-/*
-    Numroc returns the number of rows or columns
-    of a distributed matrix assuming that this matrix was distributed
-    over nprocs (used in order to calculate task size)
-    
-    n: number of rows/columns
-    nb: blockRows/blockColumns
-    iproc: process_row/process_col
-    isrproc: rsrc/csrsc
-    nprocs: dRow/dCol
-*/
+
 int numroc(int n, int nb, int iproc, int isrproc, int nprocs);
 
 class pblasDecomposer

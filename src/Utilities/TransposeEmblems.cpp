@@ -1,14 +1,4 @@
-#include <generalUtilities.hpp>
-
-int getSlurmNumNodes()
-{
-    return atoi(getenv("SLURM_JOB_NUM_NODES"));
-}
-
-double calculateGflops(const long long M, const long long N, const long long K, const double executionTime)
-{
-    return (2 * M * N * K * 1e-9) / executionTime;
-}
+#include "generalUtilities.hpp"
 
 char cblasTransOpToChar(CBLAS_TRANSPOSE operation)
 {
@@ -72,28 +62,4 @@ cublasOperation_t charToCublasTransOp(char operation)
             std::cerr << "Error: Invalid Transpose Operation Character: " << operation << ". Returning 'N' Transpose" << std::endl;
             return CUBLAS_OP_N;
     }
-}
-
-void getGPUMemoryInfo(long long *freeMemory, long long *maxMemory, const int deviceID)
-{
-    /* Keep old device in order to return control to it */
-    int previousDev=-2;
-    CUDA_CHECK(cudaGetDevice(&previousDev));
-
-    size_t freeMem, maxMem;
-    CUDA_CHECK(cudaSetDevice(deviceID));
-    CUDA_CHECK(cudaMemGetInfo(&freeMem, &maxMem));
-
-    *freeMemory = (long long) freeMem;
-    *maxMemory = (long long) maxMem;
-
-    #ifdef DEBUG
-        std::cout << "GPUs MAX Vram (in GBs): " << maxMemory/(1024*1024*1024) << std::endl;
-        std::cout << "GPUs Current free Vram (in GBs): " << freeMemory/(1024*1024*1024) << std::endl;
-    #endif
-
-    /* Return control to original device */
-    CUDA_CHECK(cudaSetDevice(previousDev));
-
-    return;
 }

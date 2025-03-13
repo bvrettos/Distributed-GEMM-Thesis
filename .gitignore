@@ -5,4 +5,8 @@
 *.cubin
 *.fatbin
 *.png
-build
+**.csv
+*:Zone.Identifier
+*build
+.vscode/*
+*.csv

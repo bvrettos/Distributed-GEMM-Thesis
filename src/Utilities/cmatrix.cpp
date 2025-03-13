@@ -304,6 +304,7 @@ template void generateMatrixGPU<float>(float* array, const long long size, const
 
 template void MatrixInit<double>(double* matrix, const long long rows, const long long columns, int loc);
 template void MatrixInit<float>(float* matrix, const long long rows, const long long columns, int loc);
+
 template void MatrixInit<double>(double* matrix, const long long size, int loc);
 template void MatrixInit<float>(float* matrix, const long long size, int loc);
 
