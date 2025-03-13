@@ -116,32 +116,37 @@ include_directories(
 add_library(transfers OBJECT src/Transfers/mpiTransfers.cpp src/Transfers/sharedTransfers.cpp)
 
 
-add_library(utilities OBJECT src/Utilities/Logging.cpp src/Utilities/Validation.cpp src/Utilities/GeneralUtilities.cpp src/Utilities/errorHandling.cpp src/Utilities/cmatrix.cpp src/Utilities/cudaCommunicator.cpp)
+add_library(utilities OBJECT src/Utilities/TransposeEmblems.cpp src/Utilities/GeneralUtilities.cpp src/Utilities/Logging.cpp src/Utilities/Validation.cpp src/Utilities/GeneralUtilities.cpp src/Utilities/errorHandling.cpp src/Utilities/cmatrix.cpp src/Utilities/cudaCommunicator.cpp)
 
 #######################################################################################
-#--------------------------- WorkInProgress Executables ------------------------------#
+#--------------------------- Custom Executables ------------------------------#
 #######################################################################################
-# add_executable(cannon25D
-#     src/25DCannon.cpp src/25DCannonNCCL.cpp src/Tests/summa25Dtest.cpp
-# )
+set(BENCHMARK_DIR src/Benchmarks)
+set(TEST_DIR src/Tests)
+set(WRAPPER_DIR src/Wrappers)
 
-# add_executable(cublas25DBenchmark
-#     src/25DCannon.cpp src/25DCannonNCCL.cpp  src/Benchmarks/cuBLAS25Benchmark.cpp
-# )
+add_executable(cannon25D
+    src/25DCannon.cpp src/25DCannonNCCL.cpp ${TEST_DIR}/summa25Dtest.cpp
+)
 
-# target_link_libraries(cannon25D ${MPI_LINK} ${CUDA_LINK} ${OPENBLAS_LINK} ${NCCL_LINK} utilities transfers)
-# target_link_libraries(cublas25DBenchmark ${MPI_LINK} ${CUDA_LINK} ${OPENBLAS_LINK} ${NCCL_LINK} utilities transfers)
+add_executable(cublas25DBenchmark
+    src/25DCannon.cpp src/25DCannonNCCL.cpp ${BENCHMARK_DIR}/cuBLAS25Benchmark.cpp
+)
 
+target_link_libraries(cannon25D ${MPI_LINK} ${CUDA_LINK} ${OPENBLAS_LINK} ${NCCL_LINK} utilities transfers)
+target_link_libraries(cublas25DBenchmark ${MPI_LINK} ${CUDA_LINK} ${OPENBLAS_LINK} ${NCCL_LINK} utilities transfers)
+
+
+# #######################################################################################
+# #--------------------------- PARALiA Executables ------------------------------------#
+# #######################################################################################
 if (BUILD_PARALIA_APPS)
-    # #######################################################################################
-    # #--------------------------- PARALiA Executables ------------------------------------#
-    # #######################################################################################
     add_executable(singleNodeParaliaBenchmark
-        src/singleNodeParaliaBenchmark.cpp src/paraliaWrappers.cpp 
+        ${BENCHMARK_DIR}/singleNodeParaliaBenchmark.cpp ${WRAPPER_DIR}/paraliaWrappers.cpp 
     )
 
     add_executable(distributedParaliaBenchmark
-        src/distributedParaliaBenchmark.cpp src/distributedParalia.cpp
+        ${BENCHMARK_DIR}/distributedParaliaBenchmark.cpp src/distributedParalia.cpp
     )
 
     add_executable(distributedParaliaValidators
@@ -156,16 +161,15 @@ endif()
 #######################################################################################
 #--------------------------- cuBLASMp Executables ------------------------------------#
 #######################################################################################
-
 if (BUILD_CUBLASMP_APPS)
     add_executable(cublasmpBenchmark
-        src/cuBLASMpBenchmark.cpp src/cuBLASMpWrapped.cpp 
-        src/pblasDecomposition.cpp src/cudaCommunicator.cpp src/calSetup.cpp
+        ${BENCHMARK_DIR}/cuBLASMpBenchmark.cpp ${WRAPPER_DIR}/cuBLASMpWrapped.cpp 
+        src/Decompositions/pblasDecomposition.cpp src/Utilities/calSetup.cpp
     )
 
     add_executable(cublasmpValidator
-        src/cuBLASMpValidator.cpp src/cuBLASMpWrapped.cpp 
-        src/pblasDecomposition.cpp src/cudaCommunicator.cpp src/calSetup.cpp
+        ${WRAPPER_DIR}/cuBLASMpValidator.cpp ${WRAPPER_DIR}/cuBLASMpWrapped.cpp 
+        src/Decompositions/pblasDecomposition.cpp src/Utilities/calSetup.cpp
     )
 
     target_link_libraries(cublasmpBenchmark ${MPI_LINK} ${OPENBLAS_LINK} ${CAL_LINK} ${CUBLASMP_LINK} ${CUDA_LINK} ${SCALAPACK_LINK} utilities transfers)
@@ -177,10 +181,10 @@ endif()
 ##################################################################################
 if (BUILD_SLATE_APPS)
     add_executable(slateBenchmark
-        src/slateBenchmark.cpp src/cudaCommunicator.cpp src/slateWrapped.cpp
+        ${BENCHMARK_DIR}/slateBenchmark.cpp ${WRAPPER_DIR}/slateWrapped.cpp
     )
     add_executable(slateValidator
-        src/slateValidator.cpp src/cudaCommunicator.cpp src/slateWrapped.cpp
+        ${WRAPPER_DIR}/slateValidator.cpp ${WRAPPER_DIR}/slateWrapped.cpp
     )
     target_link_libraries(slateValidator ${MPI_LINK} ${OPENBLAS_LINK} ${SLATE_LINK} ${CUDA_LINK} ${SCALAPACK_LINK} utilities transfers)
     target_link_libraries(slateBenchmark ${MPI_LINK} ${OPENBLAS_LINK} ${SLATE_LINK} ${CUDA_LINK} ${SCALAPACK_LINK} utilities transfers)
@@ -191,20 +195,13 @@ endif()
 ##################################################################################
 if (BUILD_COSMA_APPS)
     add_executable(cosmaBenchmark
-        src/cosmaBenchmark.cpp src/validation.cpp src/cmatrix.cpp src/cosmaWrapped.cpp src/generalUtilities.cpp
-        src/validation.cpp src/cudaCommunicator.cpp src/logging.cpp src/pblasDecomposition.cpp src/transfers.cpp
+        ${BENCHMARK_DIR}/cosmaBenchmark.cpp ${WRAPPER_DIR}/cosmaWrapped.cpp src/Decompositions/pblasDecomposition.cpp 
     )
 
     add_executable(cosmaValidators
-        src/cosmaValidators.cpp src/validation.cpp src/cmatrix.cpp src/cosmaWrapped.cpp src/generalUtilities.cpp
-        src/validation.cpp src/cudaCommunicator.cpp src/logging.cpp src/pblasDecomposition.cpp src/transfers.cpp
+        ${WRAPPER_DIR}/cosmaValidators.cpp ${WRAPPER_DIR}/cosmaWrapped.cpp src/Decompositions/pblasDecomposition.cpp 
     )
 
     target_link_libraries(cosmaBenchmark ${MPI_LINK} ${COSMA_LINK} ${CUDA_LINK} ${SCALAPACK_LINK} ${NCCL_LINK} ${OPENBLAS_LINK} utilities transfers)
 target_link_libraries(cosmaValidators ${MPI_LINK} ${COSMA_LINK} ${CUDA_LINK} ${SCALAPACK_LINK} ${NCCL_LINK} ${OPENBLAS_LINK} utilities transfers)
 endif()
-
-
-##################################################################################
-#---------------------------Library Tests ---------------------------------------#
-##################################################################################

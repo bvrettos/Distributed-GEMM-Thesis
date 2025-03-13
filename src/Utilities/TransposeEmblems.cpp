@@ -1,4 +1,4 @@
-#include "GeneralUtilities.hpp"
+#include "generalUtilities.hpp"
 
 char cblasTransOpToChar(CBLAS_TRANSPOSE operation)
 {

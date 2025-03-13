@@ -7,6 +7,6 @@
 *.png
 **.csv
 *:Zone.Identifier
-build
+*build
 .vscode/*
 *.csv

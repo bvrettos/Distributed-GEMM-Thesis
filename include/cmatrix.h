@@ -18,7 +18,6 @@
 #include <time.h>
 #include "errorHandling.hpp"
 #include "generalUtilities.hpp"
-#include "Enums.hpp"
 
 /* Print related functions */
 void printMatrix(double *array, const long long rows,  const long long columns, int rank);
